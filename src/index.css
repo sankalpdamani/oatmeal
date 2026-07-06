@@ -1,0 +1,123 @@
+@import "tailwindcss";
+@import url("https://rsms.me/inter/inter.css");
+
+/*
+ * Oatmeal theme — palette values sampled from Granola's design tokens
+ * (warm paper surfaces, ink neutrals, olive-green accent). All CSS here is
+ * original; fonts are free (Inter). Granola's licensed typefaces are not used.
+ */
+@theme {
+  --color-surface: #f7f7f2;
+  --color-surface-sunken: #f2f2ec;
+  --color-surface-raised: #ffffff;
+  --color-surface-elevated: #ffffff;
+  --color-surface-tint: #e5eacd;
+  --color-surface-green: #f2f6e1;
+  --color-surface-blue: #eaf4fe;
+
+  --color-ink: #292929;
+  --color-ink-secondary: #72726e;
+  --color-ink-secondary-strong: #4e4d4b;
+  --color-ink-tertiary: #acada8;
+  --color-ink-inverse: #fcfcf8;
+
+  --color-accent: #5b6f00;
+  --color-accent-bright: #788c15;
+  --color-accent-hover: #4c5616;
+  --color-accent-soft: #788c1526;
+  --color-danger: #e95d3d;
+  --color-danger-hover: #bd4a30;
+  --color-live: #74bd00;
+
+  --color-hairline: #47432a33;
+  --color-fill-soft: #625a220f;
+  --color-fill-soft-hover: #56512e1f;
+  --color-fill-soft-opaque: #eaebe5;
+  --color-fill-disabled: #d5d5d2;
+
+  --font-sans: "Inter", "Inter Variable", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-card: 0.75rem;
+  --shadow-card: 0px 5px 2px 0px #1c202403, 0px 3px 2px 0px #1c202408,
+    0px 1px 1px 0px #1c20240d, 0px 0px 1px 0px #1c20240f;
+  --shadow-pop: 0px 16px 7px 0px #1c202403, 0px 9px 6px 0px #1c202408,
+    0px 4px 4px 0px #1c20240d, 0px 1px 2px 0px #1c20240f;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+/* Draggable titlebar region (Electron hiddenInset) */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-drag button,
+.titlebar-drag input {
+  -webkit-app-region: no-drag;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #47432a22;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Live "dancing bars" indicator */
+@keyframes oat-bar {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+.dancing-bars span {
+  display: inline-block;
+  width: 3px;
+  border-radius: 2px;
+  height: 14px;
+  background: var(--color-live);
+  transform-origin: bottom;
+  animation: oat-bar 1s ease-in-out infinite;
+}
+.dancing-bars span:nth-child(2) { animation-delay: 0.15s; }
+.dancing-bars span:nth-child(3) { animation-delay: 0.3s; }
+.dancing-bars span:nth-child(4) { animation-delay: 0.45s; }
+
+/* Minimal markdown rendering */
+.md h2 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-ink-secondary-strong);
+  margin: 1rem 0 0.4rem;
+}
+.md h2:first-child { margin-top: 0; }
+.md ul { margin: 0.25rem 0 0.5rem; padding-left: 1.1rem; list-style: disc; }
+.md li { margin: 0.2rem 0; line-height: 1.45; }
+.md p { margin: 0.3rem 0; line-height: 1.5; }
+.md input[type="checkbox"] { margin-right: 0.4rem; accent-color: var(--color-accent); }
+.md strong { font-weight: 600; }
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-fill-soft);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}

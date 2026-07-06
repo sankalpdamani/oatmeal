@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Oatmeal — the meeting notetaker that never leaves your Mac</title>
+<meta name="description" content="Oatmeal listens to your calls, transcribes them, keeps a live summary, and lets you chat with the transcript — 100% locally, with your own models." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🥣</text></svg>" />
+<style>
+  :root {
+    --surface: #f7f7f2;
+    --surface-sunken: #f2f2ec;
+    --raised: #ffffff;
+    --tint: #e5eacd;
+    --green-soft: #f2f6e1;
+    --ink: #292929;
+    --ink-2: #72726e;
+    --ink-3: #acada8;
+    --ink-inv: #fcfcf8;
+    --accent: #5b6f00;
+    --accent-bright: #788c15;
+    --accent-hover: #4c5616;
+    --live: #74bd00;
+    --hairline: #47432a33;
+    --shadow: 0px 5px 2px #1c202403, 0px 3px 2px #1c202408, 0px 1px 1px #1c20240d, 0px 0px 1px #1c20240f;
+    --shadow-pop: 0px 16px 7px #1c202403, 0px 9px 6px #1c202408, 0px 4px 4px #1c20240d, 0px 1px 2px #1c20240f;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    background: var(--surface);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+  nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 0;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 17px; letter-spacing: -0.01em; }
+  .logo .bowl { font-size: 22px; }
+  nav .links { display: flex; gap: 8px; align-items: center; }
+  nav a { color: var(--ink-2); text-decoration: none; font-size: 14px; padding: 6px 12px; border-radius: 8px; }
+  nav a:hover { background: #56512e1f; color: var(--ink); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--accent); color: var(--ink-inv) !important;
+    font-weight: 550; font-size: 14px;
+    padding: 10px 18px; border-radius: 10px;
+    text-decoration: none; box-shadow: var(--shadow);
+    transition: background .15s ease;
+  }
+  .btn:hover { background: var(--accent-hover) !important; }
+  .btn.big { font-size: 16px; padding: 14px 26px; border-radius: 12px; }
+  .btn.ghost { background: #eaebe5; color: var(--ink) !important; }
+  .btn.ghost:hover { background: #d5d5d2 !important; }
+
+  header.hero { padding: 72px 0 48px; text-align: center; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--green-soft); border: 1px solid var(--hairline);
+    border-radius: 999px; padding: 6px 14px; font-size: 13px; color: var(--accent);
+    font-weight: 550; margin-bottom: 24px;
+  }
+  .pill .dot { width: 7px; height: 7px; border-radius: 99px; background: var(--live); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  h1 {
+    font-size: clamp(36px, 6vw, 58px);
+    letter-spacing: -0.03em; line-height: 1.05; font-weight: 650;
+  }
+  h1 em { font-style: normal; color: var(--accent-bright); }
+  .sub {
+    margin: 20px auto 32px; max-width: 560px;
+    font-size: 18px; color: var(--ink-2);
+  }
+  .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .cta-note { margin-top: 14px; font-size: 13px; color: var(--ink-3); }
+  .cta-note a { color: var(--ink-2); }
+
+  /* App mock */
+  .mock {
+    margin: 56px auto 0; max-width: 860px;
+    background: var(--raised); border: 1px solid var(--hairline);
+    border-radius: 14px; box-shadow: var(--shadow-pop);
+    text-align: left; overflow: hidden;
+  }
+  .mock .bar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 10px 14px; border-bottom: 1px solid var(--hairline);
+    background: var(--surface);
+  }
+  .mock .bar i { width: 11px; height: 11px; border-radius: 99px; background: #d5d5d2; display: inline-block; }
+  .mock .bar span { margin-left: 10px; font-size: 12px; color: var(--ink-3); }
+  .mock .cols { display: grid; grid-template-columns: 1.4fr 1fr; min-height: 300px; }
+  .mock .transcript { padding: 18px; border-right: 1px solid var(--hairline); }
+  .mock .row { display: flex; gap: 10px; margin-bottom: 12px; font-size: 13.5px; }
+  .mock .who { width: 42px; flex-shrink: 0; text-align: right; font-size: 10.5px; font-weight: 650; text-transform: uppercase; padding-top: 2px; }
+  .who.me { color: var(--accent-bright); } .who.them { color: var(--ink-3); }
+  .mock .summary { padding: 18px; background: var(--surface); }
+  .mock .summary h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); margin: 12px 0 6px; }
+  .mock .summary h4:first-child { margin-top: 0; }
+  .mock .summary li { font-size: 13px; margin-left: 18px; margin-bottom: 4px; }
+  .bars { display: inline-flex; align-items: flex-end; gap: 3px; height: 14px; margin-right: 6px; }
+  .bars b { width: 3px; border-radius: 2px; background: var(--live); animation: bar 1s ease-in-out infinite; transform-origin: bottom; height: 100%; }
+  .bars b:nth-child(2){animation-delay:.15s} .bars b:nth-child(3){animation-delay:.3s} .bars b:nth-child(4){animation-delay:.45s}
+  @keyframes bar { 0%,100%{transform:scaleY(.3)} 50%{transform:scaleY(1)} }
+  .livechip { display: inline-flex; align-items: center; font-size: 11px; color: var(--accent); background: var(--green-soft); border-radius: 99px; padding: 3px 10px; font-weight: 600; }
+
+  section { padding: 72px 0; }
+  section h2 { font-size: clamp(26px, 4vw, 34px); letter-spacing: -0.02em; font-weight: 650; text-align: center; margin-bottom: 12px; }
+  section .lede { text-align: center; color: var(--ink-2); max-width: 520px; margin: 0 auto 44px; font-size: 16px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 760px) { .grid3 { grid-template-columns: 1fr; } .mock .cols { grid-template-columns: 1fr; } .mock .transcript { border-right: 0; border-bottom: 1px solid var(--hairline); } }
+  .card {
+    background: var(--raised); border: 1px solid var(--hairline);
+    border-radius: 14px; padding: 22px; box-shadow: var(--shadow);
+  }
+  .card .num {
+    display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center;
+    background: var(--tint); color: var(--accent); font-weight: 650; font-size: 13px;
+    border-radius: 8px; margin-bottom: 14px;
+  }
+  .card h3 { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; margin-bottom: 6px; }
+  .card p { font-size: 14px; color: var(--ink-2); }
+
+  .privacy { background: var(--surface-sunken); border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
+  .privacy .grid3 .card { background: var(--raised); }
+  .check { color: var(--accent-bright); font-weight: 650; margin-right: 6px; }
+
+  .models .card code { background: #625a220f; border-radius: 6px; padding: 2px 7px; font-size: 12.5px; font-family: ui-monospace, Menlo, monospace; }
+
+  .reqs { max-width: 620px; margin: 0 auto; }
+  .reqs li { display: flex; justify-content: space-between; gap: 20px; padding: 13px 4px; border-bottom: 1px solid var(--hairline); font-size: 14.5px; list-style: none; }
+  .reqs li span:last-child { color: var(--ink-2); text-align: right; }
+
+  details.gatekeeper { max-width: 620px; margin: 28px auto 0; background: var(--raised); border: 1px solid var(--hairline); border-radius: 12px; padding: 16px 20px; font-size: 14px; }
+  details.gatekeeper summary { cursor: pointer; font-weight: 550; }
+  details.gatekeeper p { margin-top: 10px; color: var(--ink-2); }
+  details.gatekeeper code { background: #625a220f; padding: 2px 6px; border-radius: 6px; font-size: 12.5px; }
+
+  footer { padding: 44px 0 60px; text-align: center; color: var(--ink-3); font-size: 13.5px; }
+  footer a { color: var(--ink-2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <div class="logo"><span class="bowl">🥣</span> Oatmeal</div>
+    <div class="links">
+      <a href="#how">How it works</a>
+      <a href="#privacy">Privacy</a>
+      <a href="https://github.com/sankalpdamani/oatmeal">GitHub</a>
+      <a class="btn" href="#download">Download</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="pill"><span class="dot"></span> 100% local · no account · no cloud</div>
+    <h1>Meeting notes that<br /><em>never leave your Mac</em></h1>
+    <p class="sub">
+      Oatmeal listens to your calls, transcribes both sides, keeps a live summary
+      as the meeting happens, and lets you chat with the transcript — powered
+      entirely by models running on your machine.
+    </p>
+    <div class="cta-row">
+      <a class="btn big" href="https://github.com/sankalpdamani/oatmeal/releases/latest" id="download">⬇ Download for Apple Silicon</a>
+      <a class="btn big ghost" href="#how">See how it works</a>
+    </div>
+    <p class="cta-note">Free & open source · macOS 13+ · <a href="https://github.com/sankalpdamani/oatmeal">source on GitHub</a></p>
+
+    <div class="mock" aria-hidden="true">
+      <div class="bar">
+        <i></i><i></i><i></i>
+        <span>Oatmeal — Roadmap sync</span>
+        <span style="margin-left:auto"><span class="bars"><b></b><b></b><b></b><b></b></span></span>
+      </div>
+      <div class="cols">
+        <div class="transcript">
+          <div class="row"><span class="who them">Them</span><p>If we slip the beta again we lose the pilot customer, so let's be honest about scope.</p></div>
+          <div class="row"><span class="who me">Me</span><p>Agreed. We cut the analytics dashboard and ship core capture on the 18th.</p></div>
+          <div class="row"><span class="who them">Them</span><p>Fine by me. Priya owns the migration script, I'll draft the customer note.</p></div>
+          <div class="row"><span class="who me">Me</span><p>I'll confirm the date with support before we announce anything.</p></div>
+        </div>
+        <div class="summary">
+          <span class="livechip">Live summary</span>
+          <h4 style="margin-top:14px">TL;DR</h4>
+          <li style="list-style:none;font-size:13px">Beta scoped down to core capture, shipping on the 18th.</li>
+          <h4>Decisions</h4>
+          <li>Cut analytics dashboard from beta</li>
+          <h4>Action items</h4>
+          <li>Priya — migration script</li>
+          <li>Them — customer note draft</li>
+          <li>Me — confirm date with support</li>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section id="how">
+    <h2>How it works</h2>
+    <p class="lede">Three local pieces, zero cloud. Everything runs as fast as your Mac does.</p>
+    <div class="grid3">
+      <div class="card">
+        <span class="num">1</span>
+        <h3>It hears the whole call</h3>
+        <p>Oatmeal captures system audio (their side) and your microphone (your side) natively on macOS — Zoom, Meet, Teams, anything that makes sound. It can even notice a meeting starting and offer to take notes.</p>
+      </div>
+      <div class="card">
+        <span class="num">2</span>
+        <h3>Transcribes on-device</h3>
+        <p>Whisper runs locally with Metal acceleration. Pick your model in Settings — fast &amp; light or maximum accuracy — and download it with one click. Speakers are labeled Me / Them automatically.</p>
+      </div>
+      <div class="card">
+        <span class="num">3</span>
+        <h3>Summarizes &amp; answers live</h3>
+        <p>Your own Ollama model keeps a rolling summary — TL;DR, decisions, action items — updating as the meeting happens. Afterwards (or during), ask the transcript anything.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="privacy" id="privacy">
+    <div class="wrap" style="padding:0">
+      <h2>Private by physics, not by policy</h2>
+      <p class="lede">There is no server to trust. The audio pipeline literally has nowhere to send your data.</p>
+      <div class="grid3">
+        <div class="card"><h3><span class="check">✓</span>Audio stays on disk</h3><p>Capture, transcription, storage — all in <code>~/Library</code> on your Mac. Nothing is uploaded, ever.</p></div>
+        <div class="card"><h3><span class="check">✓</span>Bring your own models</h3><p>Whisper for ears, any Ollama model for brains. Swap them anytime; no vendor, no API key, no metering.</p></div>
+        <div class="card"><h3><span class="check">✓</span>Works offline</h3><p>On a plane, in a SCIF, on hotel wifi — once models are downloaded, Oatmeal needs zero connectivity.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="models" id="models">
+    <h2>Your models, your tradeoffs</h2>
+    <p class="lede">Sensible defaults, one-click downloads, or point it at anything you already run in Ollama.</p>
+    <div class="grid3">
+      <div class="card"><h3>Ears</h3><p>Whisper <code>base.en</code> (fast) · <code>small.en</code> (default) · <code>large-v3-turbo</code> (most accurate, multilingual). Downloaded in-app, Metal-accelerated.</p></div>
+      <div class="card"><h3>Brains</h3><p>Anything in Ollama: <code>qwen2.5:14b</code> for quality, <code>llama3.2:3b</code> for speed on smaller Macs. Oatmeal lists what's installed and pulls what isn't.</p></div>
+      <div class="card"><h3>Rule of thumb</h3><p>16 GB Macs: <code>base.en</code> + a 3B model. 24 GB and up: <code>small.en</code> + a 14B model runs comfortably alongside your call.</p></div>
+    </div>
+  </section>
+
+  <section id="requirements">
+    <h2>Requirements</h2>
+    <p class="lede">Honest list — it's a local AI app, it needs a modern Mac.</p>
+    <ul class="reqs">
+      <li><span>macOS</span><span>13 Ventura or newer</span></li>
+      <li><span>Chip</span><span>Apple Silicon (M1 or newer)</span></li>
+      <li><span>Memory</span><span>16 GB+ recommended</span></li>
+      <li><span>Ollama</span><span>free, for summaries &amp; chat — <a href="https://ollama.com">ollama.com</a></span></li>
+      <li><span>Permissions</span><span>Microphone + Screen Recording (for system audio)</span></li>
+    </ul>
+    <details class="gatekeeper">
+      <summary>“Oatmeal can't be opened” on first launch?</summary>
+      <p>Oatmeal is open source and currently unsigned (no $99 Apple Developer certificate). On first launch, <strong>right-click the app → Open → Open</strong>. Or from Terminal: <code>xattr -dr com.apple.quarantine /Applications/Oatmeal.app</code>. You only need to do this once.</p>
+    </details>
+  </section>
+
+  <section style="text-align:center; padding-top: 24px;">
+    <h2>Breakfast for your meetings</h2>
+    <p class="lede" style="margin-bottom:28px">Download Oatmeal, grab a model, and your next call takes its own notes.</p>
+    <a class="btn big" href="https://github.com/sankalpdamani/oatmeal/releases/latest">⬇ Download Oatmeal</a>
+  </section>
+
+  <footer>
+    🥣 Oatmeal — MIT licensed, built by <a href="https://github.com/sankalpdamani">Sankalp Damani</a>.
+    Not affiliated with Granola (whose oats inspired the bowl).
+  </footer>
+</div>
+</body>
+</html>
