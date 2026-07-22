@@ -33,10 +33,13 @@ const api = {
     ipcRenderer.invoke("meetings:rename", id, title),
   deleteMeeting: (id: string): Promise<void> => ipcRenderer.invoke("meetings:delete", id),
 
-  startRecording: (title: string): Promise<string> =>
-    ipcRenderer.invoke("recording:start", title),
+  startRecording: (title: string, appName?: string | null): Promise<string> =>
+    ipcRenderer.invoke("recording:start", title, appName),
   stopRecording: (): Promise<void> => ipcRenderer.invoke("recording:stop"),
   activeRecording: (): Promise<string | null> => ipcRenderer.invoke("recording:active"),
+  keepRecording: (): Promise<void> => ipcRenderer.invoke("recording:keep"),
+  exportTranscript: (meetingId: string): Promise<string | null> =>
+    ipcRenderer.invoke("transcript:export", meetingId),
 
   listSttModels: (): Promise<SttModel[]> => ipcRenderer.invoke("stt:list"),
   downloadSttModel: (id: string): Promise<void> => ipcRenderer.invoke("stt:download", id),
@@ -55,14 +58,20 @@ const api = {
     ipcRenderer.invoke("open-privacy-settings", pane),
 
   onSegment: (cb: (seg: Segment) => void) => on("segment", cb),
-  onSummary: (cb: (meetingId: string, md: string) => void) => on("summary", cb),
   onDetection: (cb: (state: DetectionState) => void) => on("detection", cb),
   onDetectionStartRequested: (cb: () => void) => on("detection-start-requested", cb),
   onDownloadProgress: (cb: (p: DownloadProgress) => void) => on("download-progress", cb),
   onChatToken: (cb: (meetingId: string, token: string) => void) => on("chat-token", cb),
   onChatDone: (cb: (meetingId: string, full: string) => void) => on("chat-done", cb),
-  onRecordingState: (cb: (s: { meetingId: string; recording: boolean }) => void) =>
-    on("recording-state", cb),
+  onRecordingState: (
+    cb: (s: { meetingId: string; recording: boolean; reason?: string }) => void
+  ) => on("recording-state", cb),
+  onFinalizing: (cb: (s: { meetingId: string }) => void) => on("finalizing", cb),
+  onFinalized: (
+    cb: (s: { meetingId: string; title: string; summaryMd: string }) => void
+  ) => on("finalized", cb),
+  onAutoEndPending: (cb: (s: { graceMs: number }) => void) => on("auto-end-pending", cb),
+  onAutoEndCancelled: (cb: () => void) => on("auto-end-cancelled", cb),
   onRecorderError: (cb: (msg: string) => void) => on("recorder-error", cb),
 };
 

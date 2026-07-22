@@ -49,11 +49,24 @@ Plus a public landing page where people can download the app.
 - `chat_messages(id, meeting_id, role, content, created_at)`
 - `settings(key, value)` — chosen STT model, Ollama model, detection on/off
 
-## Live summary
+## Summary (post-call, Granola parity — revised 2026-07-22)
 
-Every ~25s (only if new segments): prompt = previous summary + transcript delta
-→ updated structured summary (TL;DR, decisions, action items, open questions).
-Never re-reads the full transcript.
+Granola-parity pass. Key behavior changes:
+
+- **Post-call summary only** (no live rolling summary). When the meeting ends,
+  `finalize.ts` generates the polished note (TL;DR / key points / decisions /
+  action items / open questions) from the full transcript in one pass.
+- **AI-generated title** at end of call, from the transcript (`generateTitle`).
+- **Auto-stop & finalize**: detection tracks the meeting app that started the
+  recording; when that app quits, a 30s grace timer fires, then the meeting
+  auto-stops, summarizes, and self-names. A toast offers "Keep recording".
+  (Mic-idle can't be used mid-call — our own capture holds the mic.)
+- **Granola layout**: the summary/notes is the document (serif title, full
+  width). Transcript is tucked behind a bottom-left "Transcript" dock button
+  that opens a right-side drawer with a **Download** button (Markdown/txt).
+  Chat is a floating panel launched from an "Ask anything" pill, with a
+  **Say more** button that expands the last answer. Chat answers are grounded
+  in transcript + summary only (no web search).
 
 ## Chat
 

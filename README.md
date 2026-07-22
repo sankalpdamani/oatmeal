@@ -57,7 +57,8 @@ First run: grant **Microphone** and **Screen Recording** permissions (System
 Settings deep links are in-app), download a Whisper model in Settings, and
 have [Ollama](https://ollama.com) running.
 
-The DMG is unsigned — right-click → Open on first launch, or
+The DMG is ad-hoc signed but not notarized. If macOS says Oatmeal "is
+damaged and can't be opened," drag it to `/Applications` and run once:
 `xattr -dr com.apple.quarantine /Applications/Oatmeal.app`.
 
 ## Privacy

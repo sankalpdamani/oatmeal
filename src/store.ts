@@ -19,6 +19,8 @@ interface State {
   detection: DetectionState;
   downloads: Record<string, DownloadProgress>;
   recordingMeetingId: string | null;
+  finalizingMeetingId: string | null;
+  autoEndPending: boolean;
   recorderError: string | null;
 
   // current meeting detail
@@ -30,9 +32,11 @@ interface State {
   navigate: (v: View) => void;
   refresh: () => Promise<void>;
   openMeeting: (id: string) => Promise<void>;
-  startMeeting: (title: string) => Promise<void>;
+  startMeeting: (title: string, appName?: string | null) => Promise<void>;
   stopMeeting: () => Promise<void>;
+  keepRecording: () => Promise<void>;
   sendChat: (content: string) => Promise<void>;
+  sayMore: () => Promise<void>;
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -43,6 +47,8 @@ export const useStore = create<State>((set, get) => ({
   detection: { meetingApp: null, micBusy: false, likelyMeeting: false },
   downloads: {},
   recordingMeetingId: null,
+  finalizingMeetingId: null,
+  autoEndPending: false,
   recorderError: null,
   segments: [],
   summaryMd: "",
@@ -72,9 +78,9 @@ export const useStore = create<State>((set, get) => ({
     });
   },
 
-  startMeeting: async (title) => {
+  startMeeting: async (title, appName) => {
     set({ recorderError: null });
-    const id = await window.oatmeal.startRecording(title);
+    const id = await window.oatmeal.startRecording(title, appName ?? null);
     set({ recordingMeetingId: id });
     await get().refresh();
     await get().openMeeting(id);
@@ -83,7 +89,11 @@ export const useStore = create<State>((set, get) => ({
   stopMeeting: async () => {
     await window.oatmeal.stopRecording();
     set({ recordingMeetingId: null });
-    await get().refresh();
+  },
+
+  keepRecording: async () => {
+    await window.oatmeal.keepRecording();
+    set({ autoEndPending: false });
   },
 
   sendChat: async (content) => {
@@ -115,6 +125,16 @@ export const useStore = create<State>((set, get) => ({
       }));
     }
   },
+
+  sayMore: async () => {
+    const { chat, chatStreaming } = get();
+    if (chatStreaming !== null) return;
+    const lastAssistant = [...chat].reverse().find((m) => m.role === "assistant");
+    if (!lastAssistant) return;
+    await get().sendChat(
+      "Say more — expand your previous answer with additional detail and specifics drawn from the transcript."
+    );
+  },
 }));
 
 // Wire main-process events once.
@@ -124,12 +144,6 @@ export function initStoreEvents() {
     const st = s.getState();
     if (st.view.name === "meeting" && st.view.id === seg.meetingId) {
       s.setState({ segments: [...st.segments, seg] });
-    }
-  });
-  window.oatmeal.onSummary((meetingId, md) => {
-    const st = s.getState();
-    if (st.view.name === "meeting" && st.view.id === meetingId) {
-      s.setState({ summaryMd: md });
     }
   });
   window.oatmeal.onDetection((detection) => s.setState({ detection }));
@@ -149,26 +163,37 @@ export function initStoreEvents() {
         chatStreaming: null,
         chat: [
           ...st.chat,
-          {
-            id: Date.now(),
-            meetingId,
-            role: "assistant",
-            content: full,
-            createdAt: Date.now(),
-          },
+          { id: Date.now(), meetingId, role: "assistant", content: full, createdAt: Date.now() },
         ],
       });
     }
   });
   window.oatmeal.onRecordingState(({ recording, meetingId }) => {
-    s.setState({ recordingMeetingId: recording ? meetingId : null });
+    s.setState({
+      recordingMeetingId: recording ? meetingId : null,
+      autoEndPending: false,
+    });
     void s.getState().refresh();
   });
-  window.oatmeal.onRecorderError((msg) => s.setState({ recorderError: msg }));
+  window.oatmeal.onFinalizing(({ meetingId }) => {
+    s.setState({ finalizingMeetingId: meetingId, autoEndPending: false });
+  });
+  window.oatmeal.onFinalized(({ meetingId, summaryMd }) => {
+    const st = s.getState();
+    const patch: Partial<ReturnType<typeof s.getState>> = { finalizingMeetingId: null };
+    if (st.view.name === "meeting" && st.view.id === meetingId) patch.summaryMd = summaryMd;
+    s.setState(patch);
+    void st.refresh();
+  });
+  window.oatmeal.onAutoEndPending(() => s.setState({ autoEndPending: true }));
+  window.oatmeal.onAutoEndCancelled(() => s.setState({ autoEndPending: false }));
+  window.oatmeal.onRecorderError((msg) =>
+    s.setState({ recorderError: msg, finalizingMeetingId: null })
+  );
   window.oatmeal.onDetectionStartRequested(() => {
     const st = s.getState();
     if (!st.recordingMeetingId) {
-      void st.startMeeting(st.detection.meetingApp ? `${st.detection.meetingApp} meeting` : "");
+      void st.startMeeting("", st.detection.meetingApp);
     }
   });
 }

@@ -160,9 +160,9 @@
     <div class="pill"><span class="dot"></span> 100% local · no account · no cloud</div>
     <h1>Meeting notes that<br /><em>never leave your Mac</em></h1>
     <p class="sub">
-      Oatmeal listens to your calls, transcribes both sides, keeps a live summary
-      as the meeting happens, and lets you chat with the transcript — powered
-      entirely by models running on your machine.
+      Oatmeal listens to your calls, transcribes both sides, and writes the
+      notes automatically when the meeting ends — then lets you chat with the
+      transcript. Powered entirely by models running on your machine.
     </p>
     <div class="cta-row">
       <a class="btn big" href="https://github.com/sankalpdamani/oatmeal/releases/latest" id="download">⬇ Download for Apple Silicon</a>
@@ -184,7 +184,7 @@
           <div class="row"><span class="who me">Me</span><p>I'll confirm the date with support before we announce anything.</p></div>
         </div>
         <div class="summary">
-          <span class="livechip">Live summary</span>
+          <span class="livechip">Summary</span>
           <h4 style="margin-top:14px">TL;DR</h4>
           <li style="list-style:none;font-size:13px">Beta scoped down to core capture, shipping on the 18th.</li>
           <h4>Decisions</h4>
@@ -214,8 +214,8 @@
       </div>
       <div class="card">
         <span class="num">3</span>
-        <h3>Summarizes &amp; answers live</h3>
-        <p>Your own Ollama model keeps a rolling summary — TL;DR, decisions, action items — updating as the meeting happens. Afterwards (or during), ask the transcript anything.</p>
+        <h3>Writes the notes when it ends</h3>
+        <p>When the call is over, your own Ollama model writes the summary — TL;DR, decisions, action items — and names the meeting from what was discussed. Then ask the transcript anything, or download it in a click.</p>
       </div>
     </div>
   </section>
@@ -252,9 +252,11 @@
       <li><span>Ollama</span><span>free, for summaries &amp; chat — <a href="https://ollama.com">ollama.com</a></span></li>
       <li><span>Permissions</span><span>Microphone + Screen Recording (for system audio)</span></li>
     </ul>
-    <details class="gatekeeper">
-      <summary>“Oatmeal can't be opened” on first launch?</summary>
-      <p>Oatmeal is open source and currently unsigned (no $99 Apple Developer certificate). On first launch, <strong>right-click the app → Open → Open</strong>. Or from Terminal: <code>xattr -dr com.apple.quarantine /Applications/Oatmeal.app</code>. You only need to do this once.</p>
+    <details class="gatekeeper" open>
+      <summary>“Oatmeal is damaged and can't be opened”?</summary>
+      <p>It isn't damaged — Oatmeal is open source and unsigned (no $99 Apple certificate yet), so macOS quarantines it on download. Drag Oatmeal into your <strong>Applications</strong> folder, then run this once in Terminal:</p>
+      <p><code>xattr -dr com.apple.quarantine /Applications/Oatmeal.app</code></p>
+      <p>Then open it normally. (Right-click → Open works on some Macs, but on recent macOS the Terminal command is the reliable fix for the “damaged” message.)</p>
     </details>
   </section>
 

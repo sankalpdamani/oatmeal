@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Notification,
   shell,
@@ -8,25 +9,27 @@ import {
   nativeImage,
 } from "electron";
 import { spawn, execFile, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import type { AppStatus, DetectionState, Settings } from "../shared/types";
+import type { AppStatus, DetectionState, Segment, Settings } from "../shared/types";
 import * as db from "./db";
 import * as whisper from "./whisper";
 import * as ollama from "./ollama";
 import { Recorder } from "./recorder";
-import { Summarizer } from "./summarizer";
+import { generateSummary, generateTitle } from "./finalize";
 
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let detectProc: ChildProcess | null = null;
-let lastDetection: DetectionState = { meetingApp: null, micBusy: false, likelyMeeting: false };
 let notifiedForCurrentMeeting = false;
 
 // One active recording at a time.
 let recorder: Recorder | null = null;
-let summarizer: Summarizer | null = null;
 let activeMeetingId: string | null = null;
+let startedByApp: string | null = null; // meeting app that triggered the recording
+let endGraceTimer: ReturnType<typeof setTimeout> | null = null;
+const AUTO_END_GRACE_MS = 30000;
 
 function send(channel: string, ...args: unknown[]) {
   win?.webContents.send(channel, ...args);
@@ -78,8 +81,8 @@ function startDetection() {
       if (!line.trim()) continue;
       try {
         const state = JSON.parse(line) as DetectionState;
-        lastDetection = state;
         send("detection", state);
+        // Offer to start notes when a meeting appears and we're idle.
         if (state.likelyMeeting && !activeMeetingId && !notifiedForCurrentMeeting) {
           notifiedForCurrentMeeting = true;
           const n = new Notification({
@@ -93,6 +96,14 @@ function startDetection() {
           n.show();
         }
         if (!state.likelyMeeting) notifiedForCurrentMeeting = false;
+        // Auto-end: if this recording was started for a meeting app and that
+        // app is no longer present, the call has ended. (We can't use mic-idle
+        // while recording — our own capture holds the mic.)
+        if (activeMeetingId && startedByApp) {
+          const appGone = state.meetingApp !== startedByApp;
+          if (appGone) armAutoEnd();
+          else cancelAutoEnd();
+        }
       } catch {
         /* skip */
       }
@@ -108,41 +119,85 @@ function stopDetection() {
   detectProc = null;
 }
 
-async function startRecording(title: string): Promise<string> {
+function armAutoEnd() {
+  if (endGraceTimer || !activeMeetingId) return;
+  send("auto-end-pending", { graceMs: AUTO_END_GRACE_MS });
+  endGraceTimer = setTimeout(() => {
+    endGraceTimer = null;
+    void stopRecording("auto");
+  }, AUTO_END_GRACE_MS);
+}
+
+function cancelAutoEnd() {
+  if (endGraceTimer) {
+    clearTimeout(endGraceTimer);
+    endGraceTimer = null;
+    send("auto-end-cancelled");
+  }
+}
+
+async function startRecording(title: string, appName?: string | null): Promise<string> {
   if (activeMeetingId) throw new Error("a meeting is already being recorded");
   const s = getSettings();
   if (!whisper.whisperReady()) await whisper.startWhisper(s.sttModel);
 
   const id = randomUUID();
-  db.createMeeting(id, title || "Untitled meeting");
+  db.createMeeting(id, title || (appName ? `${appName} meeting` : "New meeting"));
   activeMeetingId = id;
+  startedByApp = appName ?? null;
 
-  summarizer = new Summarizer(id, s.llmModel, (md) => send("summary", id, md));
   recorder = new Recorder(
     id,
-    (seg) => {
-      send("segment", seg);
-      summarizer?.push(seg);
-    },
+    (seg) => send("segment", seg),
     (msg) => send("recorder-error", msg)
   );
   recorder.start();
-  summarizer.start();
   send("recording-state", { meetingId: id, recording: true });
   return id;
 }
 
-async function stopRecording(): Promise<void> {
+// Stop capture, then generate the polished note + AI title (Granola-style).
+async function stopRecording(reason: "manual" | "auto" = "manual"): Promise<void> {
   if (!activeMeetingId) return;
   const id = activeMeetingId;
+  cancelAutoEnd();
   await recorder?.stop();
   recorder = null;
-  await summarizer?.stop();
-  summarizer = null;
   db.endMeeting(id);
   activeMeetingId = null;
-  send("recording-state", { meetingId: id, recording: false });
-  send("summary", id, db.getMeeting(id)?.summaryMd ?? "");
+  startedByApp = null;
+  notifiedForCurrentMeeting = false;
+  send("recording-state", { meetingId: id, recording: false, reason });
+
+  // Finalize: summary + title from the full transcript.
+  send("finalizing", { meetingId: id });
+  const segments: Segment[] = db.listSegments(id);
+  const model = getSettings().llmModel;
+  try {
+    const existing = db.getMeeting(id);
+    const wasAutoTitled = !existing?.title || /meeting$|^New meeting$/i.test(existing.title);
+    const [summary, title] = await Promise.all([
+      generateSummary(model, segments),
+      wasAutoTitled ? generateTitle(model, segments) : Promise.resolve(existing!.title),
+    ]);
+    db.saveSummary(id, summary);
+    if (title && title !== existing?.title) db.renameMeeting(id, title);
+  } catch (e) {
+    console.error("finalize failed:", e);
+    send("recorder-error", `Couldn't write the summary — is Ollama running? (${String(e)})`);
+  }
+  const m = db.getMeeting(id);
+  send("finalized", { meetingId: id, title: m?.title ?? "", summaryMd: m?.summaryMd ?? "" });
+}
+
+function transcriptMarkdown(meetingId: string): string {
+  const m = db.getMeeting(meetingId);
+  const segs = db.listSegments(meetingId);
+  const when = m ? new Date(m.startedAt).toLocaleString() : "";
+  const body = segs
+    .map((s) => `**${s.speaker === "me" ? "Me" : "Them"}:** ${s.text}`)
+    .join("\n\n");
+  return `# ${m?.title ?? "Meeting"}\n\n_${when}_\n\n${body || "_No transcript captured._"}\n`;
 }
 
 function buildTranscriptContext(meetingId: string): string {
@@ -177,9 +232,28 @@ function registerIpc() {
   );
   ipcMain.handle("meetings:delete", (_e, id: string) => db.deleteMeeting(id));
 
-  ipcMain.handle("recording:start", (_e, title: string) => startRecording(title));
-  ipcMain.handle("recording:stop", () => stopRecording());
+  ipcMain.handle("recording:start", (_e, title: string, appName?: string | null) =>
+    startRecording(title, appName)
+  );
+  ipcMain.handle("recording:stop", () => stopRecording("manual"));
   ipcMain.handle("recording:active", () => activeMeetingId);
+  ipcMain.handle("recording:keep", () => cancelAutoEnd());
+
+  ipcMain.handle("transcript:export", async (_e, meetingId: string) => {
+    const m = db.getMeeting(meetingId);
+    const safe = (m?.title ?? "meeting").replace(/[^\w\- ]+/g, "").trim() || "meeting";
+    const { canceled, filePath } = await dialog.showSaveDialog(win!, {
+      title: "Download transcript",
+      defaultPath: `${safe}.md`,
+      filters: [
+        { name: "Markdown", extensions: ["md"] },
+        { name: "Text", extensions: ["txt"] },
+      ],
+    });
+    if (canceled || !filePath) return null;
+    fs.writeFileSync(filePath, transcriptMarkdown(meetingId), "utf8");
+    return filePath;
+  });
 
   ipcMain.handle("stt:list", () => whisper.listSttModels());
   ipcMain.handle("stt:download", async (_e, id: string) => {

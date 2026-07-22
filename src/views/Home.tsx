@@ -5,15 +5,16 @@ export default function Home() {
   const meetings = useStore((s) => s.meetings);
   const detection = useStore((s) => s.detection);
   const recordingId = useStore((s) => s.recordingMeetingId);
+  const finalizingId = useStore((s) => s.finalizingMeetingId);
   const startMeeting = useStore((s) => s.startMeeting);
   const openMeeting = useStore((s) => s.openMeeting);
   const refresh = useStore((s) => s.refresh);
   const [starting, setStarting] = useState(false);
 
-  const start = async (title: string) => {
+  const start = async (title: string, appName?: string | null) => {
     setStarting(true);
     try {
-      await startMeeting(title);
+      await startMeeting(title, appName);
     } catch (e) {
       alert(String(e));
     } finally {
@@ -40,7 +41,7 @@ export default function Home() {
           </div>
           <button
             disabled={starting}
-            onClick={() => void start(`${detection.meetingApp} meeting`)}
+            onClick={() => void start("", detection.meetingApp)}
             className="rounded-lg bg-accent px-3.5 py-1.5 text-[13px] font-medium text-ink-inverse hover:bg-accent-hover disabled:opacity-50"
           >
             Start notes
@@ -65,8 +66,8 @@ export default function Home() {
           <div className="text-[15px] font-medium">No meetings yet</div>
           <div className="max-w-sm text-[13px] leading-relaxed text-ink-secondary">
             Start a meeting and Oatmeal will transcribe both sides of the call,
-            keep a live summary, and let you chat with the transcript — all on
-            this Mac.
+            write the notes when it ends, and let you chat with the transcript —
+            all on this Mac.
           </div>
         </div>
       ) : (
@@ -86,6 +87,11 @@ export default function Home() {
                       <span className="flex items-center gap-1 rounded-full bg-surface-green px-2 py-0.5 text-[11px] font-medium text-accent">
                         <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-live" />
                         Live
+                      </span>
+                    )}
+                    {finalizingId === m.id && (
+                      <span className="rounded-full bg-surface-tint px-2 py-0.5 text-[11px] font-medium text-accent">
+                        Summarizing…
                       </span>
                     )}
                   </div>
