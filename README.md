@@ -86,12 +86,13 @@ it once: `WHISPER_CPP_REF=v1.7.5 npm run build:whisper`).
 npm run dist    # -> release/Oatmeal-<version>-arm64.dmg
 ```
 
-### Runtime models
+### Models
 
-Two model families are downloaded on demand (kept out of the repo — they're
-hundreds of MB to GBs):
-
-- **Whisper (speech-to-text):** download a size in **Settings** on first run.
+- **Whisper (speech-to-text):** the `small.en` model is **bundled with the
+  downloadable app**, so transcription works out of the box. Other sizes
+  (`base.en`, `large-v3-turbo`) are downloadable in **Settings**. (Building from
+  source? CI bundles the model into the DMG; a local `npm run dist` ships
+  without it and you download one in Settings.)
 - **Ollama (summaries & chat):** install [Ollama](https://ollama.com/download),
   start it, and pull a model, e.g. `ollama pull qwen2.5:14b`. The app detects
   whether Ollama is up and links you to the download if it isn't.

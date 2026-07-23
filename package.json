@@ -51,7 +51,8 @@
     "afterPack": "scripts/after-pack.cjs",
     "artifactName": "Oatmeal-macOS-arm64.${ext}",
     "extraResources": [
-      { "from": "resources/bin", "to": "bin" }
+      { "from": "resources/bin", "to": "bin" },
+      { "from": "resources/models", "to": "models" }
     ],
     "mac": {
       "category": "public.app-category.productivity",

@@ -39,6 +39,24 @@ export function modelsDir(): string {
   return dir;
 }
 
+function bundledModelsDir(): string {
+  // Models shipped inside the app. Packaged: Resources/models. Dev: <repo>/resources/models.
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "models")
+    : path.join(app.getAppPath(), "resources", "models");
+}
+
+// Resolve a model file to a readable path. A user-downloaded copy in userData
+// takes precedence over a copy bundled with the app; returns null if neither
+// exists.
+export function modelFilePath(file: string): string | null {
+  const userCopy = path.join(modelsDir(), file);
+  if (fs.existsSync(userCopy)) return userCopy;
+  const bundled = path.join(bundledModelsDir(), file);
+  if (fs.existsSync(bundled)) return bundled;
+  return null;
+}
+
 function binDir(): string {
   // Packaged: Resources/bin. Dev: <repo>/resources/bin.
   return app.isPackaged
@@ -51,10 +69,9 @@ export function binaryPath(name: string): string {
 }
 
 export function listSttModels(): SttModel[] {
-  const dir = modelsDir();
   return STT_CATALOG.map((m) => ({
     ...m,
-    installed: fs.existsSync(path.join(dir, m.file)),
+    installed: modelFilePath(m.file) !== null,
   }));
 }
 
@@ -126,8 +143,8 @@ async function waitForServer(timeoutMs = 30000): Promise<boolean> {
 export async function startWhisper(modelId: string): Promise<void> {
   const entry = STT_CATALOG.find((m) => m.id === modelId);
   if (!entry) throw new Error(`unknown STT model: ${modelId}`);
-  const modelPath = path.join(modelsDir(), entry.file);
-  if (!fs.existsSync(modelPath)) throw new Error(`model not downloaded: ${modelId}`);
+  const modelPath = modelFilePath(entry.file);
+  if (!modelPath) throw new Error(`model not available: ${modelId}`);
 
   await stopWhisper();
   stopping = false;
