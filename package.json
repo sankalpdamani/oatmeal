@@ -1,7 +1,7 @@
 {
   "name": "oatmeal",
   "productName": "Oatmeal",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local-first meeting notetaker. Your meetings never leave your Mac.",
   "private": true,
   "main": "dist-electron/main.js",
