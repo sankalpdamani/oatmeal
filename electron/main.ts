@@ -38,11 +38,15 @@ function send(channel: string, ...args: unknown[]) {
 
 // Size the default Whisper model to the machine so transcription keeps up in
 // real time: the lighter/faster base.en on low-memory Macs, small.en otherwise.
-// Both are bundled, so either choice works offline. Only applies until the user
-// explicitly picks a model in Settings (which persists sttModel).
+// Falls back to whatever is actually bundled (the lite build ships base.en
+// only), so the default always works offline. Applies until the user explicitly
+// picks a model in Settings (which persists sttModel).
 function defaultSttModel(): string {
   const totalGib = os.totalmem() / 1024 ** 3;
-  return totalGib <= 8.5 ? "base.en" : "small.en";
+  const preferred = totalGib <= 8.5 ? "base.en" : "small.en";
+  const installed = whisper.listSttModels().filter((m) => m.installed).map((m) => m.id);
+  if (installed.includes(preferred)) return preferred;
+  return installed[0] ?? preferred;
 }
 
 function getSettings(): Settings {

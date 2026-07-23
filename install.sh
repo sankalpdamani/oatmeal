@@ -9,7 +9,7 @@
 set -euo pipefail
 
 APP="/Applications/Oatmeal.app"
-DMG_URL="https://github.com/sankalpdamani/oatmeal/releases/latest/download/Oatmeal-macOS-arm64.dmg"
+BASE="https://github.com/sankalpdamani/oatmeal/releases/latest/download"
 
 # --- prerequisites ---
 if [ "$(uname -s)" != "Darwin" ]; then
@@ -21,7 +21,22 @@ if [ "$(uname -m)" != "arm64" ]; then
   exit 1
 fi
 
-echo "🥣  Installing Oatmeal…"
+# --- pick a build for this Mac ---
+# Full = base.en + small.en (better accuracy). Lite = base.en only (smaller,
+# faster on low-memory Macs). Auto-choose by installed RAM; override with
+#   curl -fsSL <url> | OATMEAL_VARIANT=lite bash     (or =full)
+MEM_GIB=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))
+VARIANT="${OATMEAL_VARIANT:-}"
+if [ -z "$VARIANT" ]; then
+  if [ "$MEM_GIB" -le 8 ] && [ "$MEM_GIB" -gt 0 ]; then VARIANT="lite"; else VARIANT="full"; fi
+fi
+if [ "$VARIANT" = "lite" ]; then
+  DMG_URL="$BASE/Oatmeal-macOS-arm64-lite.dmg"
+  echo "🥣  Installing Oatmeal (lite build — fast on ${MEM_GIB}GB Macs)…"
+else
+  DMG_URL="$BASE/Oatmeal-macOS-arm64.dmg"
+  echo "🥣  Installing Oatmeal (full build)…"
+fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 DMG="$TMP/Oatmeal.dmg"

@@ -4,17 +4,26 @@
 
 ### Install in one command
 
-Paste this into **Terminal** (Apple Silicon Mac, macOS 13+):
+Paste this into **Terminal** (Apple Silicon Mac, macOS 14.4+):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sankalpdamani/oatmeal/main/install.sh | bash
 ```
 
-It downloads the latest build, installs Oatmeal to your Applications, clears the
-macOS security flag, and opens it — no Settings changes and no "unverified
-developer" prompt.
+It reads your Mac's memory, downloads the right build (see below), installs
+Oatmeal to your Applications, clears the macOS security flag, and opens it — no
+Settings changes and no "unverified developer" prompt. Force a build with
+`… | OATMEAL_VARIANT=lite bash` (or `=full`).
 
-<sub>Prefer clicking? <a href="https://github.com/sankalpdamani/oatmeal/releases/latest/download/Oatmeal-macOS-arm64.dmg">Download the .dmg</a> instead (right-click → <b>Open</b> on first launch). Summaries &amp; chat need <a href="https://ollama.com/download">Ollama</a> running.</sub>
+**Prefer to click?** Two builds — you can switch Whisper models inside the app
+either way (Settings ▸ Transcription):
+
+| Build | Bundled models | Size | Best for |
+|---|---|---|---|
+| [**Full**](https://github.com/sankalpdamani/oatmeal/releases/latest/download/Oatmeal-macOS-arm64.dmg) | base.en + small.en | ~700 MB | 16 GB+ Macs — best accuracy out of the box |
+| [**Lite**](https://github.com/sankalpdamani/oatmeal/releases/latest/download/Oatmeal-macOS-arm64-lite.dmg) | base.en only | ~250 MB | 8 GB Macs / slow connections — fastest |
+
+<sub>Right-click → <b>Open</b> on first launch (unsigned build). Summaries &amp; chat need a local LLM like <a href="https://ollama.com/download">Ollama</a> running.</sub>
 
 Oatmeal listens to your calls (system audio + microphone), transcribes both
 sides locally with Whisper, keeps a **live summary** as the meeting happens,
@@ -56,7 +65,7 @@ time — one command wires it all up.
 
 | Tool | Version | Install |
 |---|---|---|
-| macOS | 13+ (Apple Silicon) | — |
+| macOS | 14.4+ (Apple Silicon) | — |
 | Xcode Command Line Tools | current | `xcode-select --install` |
 | Node | 22+ (pinned in `.nvmrc`) | `nvm install && nvm use`, or [nodejs.org](https://nodejs.org) |
 | cmake | 3.x | `brew install cmake` |
@@ -99,8 +108,9 @@ npm run dist    # -> release/Oatmeal-<version>-arm64.dmg
   start it, and pull a model, e.g. `ollama pull qwen2.5:14b`. The app detects
   whether Ollama is up and links you to the download if it isn't.
 
-First run: grant **Microphone** and **Screen Recording** permissions (System
-Settings deep links are in-app).
+First run: grant **Microphone** and **System Audio** permissions — the guided
+setup screen walks you through both (no Screen Recording needed; system audio
+uses a Core Audio tap).
 
 The DMG is ad-hoc signed but not notarized. If macOS says Oatmeal "is
 damaged and can't be opened," drag it to `/Applications` and run once:
