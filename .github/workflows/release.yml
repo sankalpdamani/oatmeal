@@ -5,14 +5,20 @@ name: Release
 # points at a fresh, installable build. Ad-hoc signed only — no Apple secrets
 # required.
 #
-# Trigger by pushing a version tag:  git tag v0.1.0 && git push origin v0.1.0
-# Or run manually from the Actions tab (workflow_dispatch), which publishes/
-# refreshes a rolling "latest" prerelease.
+# Trigger either way:
+#   • Push a version tag:   git tag v0.1.1 && git push origin v0.1.1
+#   • Run manually:         Actions tab → Release → Run workflow
+# Both publish the DMG and mark the release as "latest", so
+# releases/latest/download/Oatmeal-macOS-arm64.dmg is a stable one-click link.
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish/refresh"
+        default: latest
 
 permissions:
   contents: write
@@ -43,19 +49,11 @@ jobs:
       - name: Build DMG
         run: npm run dist
 
-      - name: Publish tagged release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*.dmg
-          fail_on_unmatched_files: true
-
-      - name: Publish rolling "latest" build (manual runs)
-        if: github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: Latest build
-          prerelease: true
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+          name: ${{ github.ref_type == 'tag' && github.ref_name || 'Latest build' }}
+          make_latest: "true"
           files: release/*.dmg
           fail_on_unmatched_files: true
