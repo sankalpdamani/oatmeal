@@ -33,29 +33,55 @@ Every ~25s the summarizer folds new segments into the running summary
 
 ## Build from source
 
-Requirements: macOS 13+, Apple Silicon, Xcode CLT, Node 22, cmake.
+Everything the app needs is either committed here or fetched, pinned, at build
+time — one command wires it all up.
+
+### Requirements
+
+| Tool | Version | Install |
+|---|---|---|
+| macOS | 13+ (Apple Silicon) | — |
+| Xcode Command Line Tools | current | `xcode-select --install` |
+| Node | 22+ (pinned in `.nvmrc`) | `nvm install && nvm use`, or [nodejs.org](https://nodejs.org) |
+| cmake | 3.x | `brew install cmake` |
+| git | any | ships with the CLT above |
+| Ollama | current | [ollama.com/download](https://ollama.com/download) — runtime only (summaries & chat) |
+
+Not sure what's missing? Run `npm run doctor` — it checks every item above and
+tells you exactly how to fix any gap.
+
+### Quickstart
 
 ```bash
-# 1. whisper.cpp (once)
-git clone --depth 1 https://github.com/ggml-org/whisper.cpp vendor/whisper.cpp
-cmake -S vendor/whisper.cpp -B vendor/whisper.cpp/build -DCMAKE_BUILD_TYPE=Release
-cmake --build vendor/whisper.cpp/build -j --target whisper-server
-cp vendor/whisper.cpp/build/bin/whisper-server resources/bin/
-
-# 2. App
-npm install
-npm run rebuild        # better-sqlite3 for Electron ABI
-npm run build:native   # Swift helper -> resources/bin/OatmealAudio
-npx vite build
-npx electron .         # run
-
-# 3. DMG
-npm run dist           # -> release/Oatmeal-<version>-arm64.dmg
+npm run setup   # doctor + npm install + whisper-server + native helper + sqlite rebuild
+npm run dev     # run the app
 ```
 
+`npm run setup` is idempotent and does everything: it verifies prerequisites,
+installs JS deps, clones and builds `whisper-server` from a **pinned**
+whisper.cpp release into `resources/bin/`, builds the Swift audio helper, and
+rebuilds `better-sqlite3` against Electron's ABI. To move whisper.cpp to a
+newer release, bump `WHISPER_CPP_REF` in `scripts/build-whisper.sh` (or override
+it once: `WHISPER_CPP_REF=v1.7.5 npm run build:whisper`).
+
+### Package a DMG
+
+```bash
+npm run dist    # -> release/Oatmeal-<version>-arm64.dmg
+```
+
+### Runtime models
+
+Two model families are downloaded on demand (kept out of the repo — they're
+hundreds of MB to GBs):
+
+- **Whisper (speech-to-text):** download a size in **Settings** on first run.
+- **Ollama (summaries & chat):** install [Ollama](https://ollama.com/download),
+  start it, and pull a model, e.g. `ollama pull qwen2.5:14b`. The app detects
+  whether Ollama is up and links you to the download if it isn't.
+
 First run: grant **Microphone** and **Screen Recording** permissions (System
-Settings deep links are in-app), download a Whisper model in Settings, and
-have [Ollama](https://ollama.com) running.
+Settings deep links are in-app).
 
 The DMG is unsigned — right-click → Open on first launch, or
 `xattr -dr com.apple.quarantine /Applications/Oatmeal.app`.
