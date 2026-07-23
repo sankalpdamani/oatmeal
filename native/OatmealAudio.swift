@@ -231,19 +231,29 @@ func runDetectWatch() {
 
 // MARK: - Permissions
 
-func runPermissions() {
-    let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-    if micStatus == .notDetermined {
+func printPerms() {
+    let mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    let screen = CGPreflightScreenCaptureAccess()
+    let obj: [String: Any] = ["microphone": mic, "screenRecording": screen]
+    let data = try! JSONSerialization.data(withJSONObject: obj)
+    print(String(data: data, encoding: .utf8)!)
+}
+
+// Read-only status. NEVER prompts — safe to call on a poll. (Prompting here is
+// what made the Screen Recording dialog reappear every refresh.)
+func runPermCheck() {
+    printPerms()
+}
+
+// Explicitly request the microphone (prompts once if undecided). Does not touch
+// Screen Recording — that's granted in System Settings and needs a relaunch.
+func runRequestMic() {
+    if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
         let sem = DispatchSemaphore(value: 0)
         AVCaptureDevice.requestAccess(for: .audio) { _ in sem.signal() }
         sem.wait()
     }
-    let mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-    let screen = CGPreflightScreenCaptureAccess()
-    if !screen { CGRequestScreenCaptureAccess() }
-    let obj: [String: Any] = ["microphone": mic, "screenRecording": screen]
-    let data = try! JSONSerialization.data(withJSONObject: obj)
-    print(String(data: data, encoding: .utf8)!)
+    printPerms()
 }
 
 // MARK: - Main
@@ -275,8 +285,13 @@ case "capture":
     RunLoop.main.run()
 case "detect":
     runDetectWatch()
+case "permcheck":
+    runPermCheck()
+case "reqmic":
+    runRequestMic()
 case "permissions":
-    runPermissions()
+    // Back-compat: treat as a read-only check so nothing prompts on a poll.
+    runPermCheck()
 default:
     log("unknown command: \(cmd)")
     exit(64)

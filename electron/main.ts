@@ -57,17 +57,29 @@ async function getStatus(): Promise<AppStatus> {
   };
 }
 
+// Read-only permission status. Safe to call on a poll — never prompts.
 function checkPermissions(): Promise<{ microphone: boolean; screenRecording: boolean }> {
+  return runHelperPerms("permcheck");
+}
+
+// Explicitly ask for the microphone (shows the prompt once). Triggered only by
+// a user action, never by status polling.
+function requestMicPermission(): Promise<{ microphone: boolean; screenRecording: boolean }> {
+  return runHelperPerms("reqmic");
+}
+
+function runHelperPerms(
+  sub: "permcheck" | "reqmic"
+): Promise<{ microphone: boolean; screenRecording: boolean }> {
   return new Promise((resolve) => {
-    execFile(whisper.binaryPath("OatmealAudio"), ["permissions"], { timeout: 15000 },
-      (err, stdout) => {
-        if (err) return resolve({ microphone: false, screenRecording: false });
-        try {
-          resolve(JSON.parse(stdout.trim()));
-        } catch {
-          resolve({ microphone: false, screenRecording: false });
-        }
-      });
+    execFile(whisper.binaryPath("OatmealAudio"), [sub], { timeout: 15000 }, (err, stdout) => {
+      if (err) return resolve({ microphone: false, screenRecording: false });
+      try {
+        resolve(JSON.parse(stdout.trim()));
+      } catch {
+        resolve({ microphone: false, screenRecording: false });
+      }
+    });
   });
 }
 
@@ -324,6 +336,7 @@ ${transcript || "(no transcript yet)"}`;
   });
 
   ipcMain.handle("permissions:check", () => checkPermissions());
+  ipcMain.handle("permissions:request-mic", () => requestMicPermission());
   ipcMain.handle("app:relaunch", () => {
     app.relaunch();
     app.exit(0);

@@ -18,10 +18,11 @@ export default function Onboarding() {
   const mic = !!status?.permissions.microphone;
   const screen = !!status?.permissions.screenRecording;
 
-  // Running the helper's permission check triggers the native mic prompt.
+  // Explicitly request the mic (prompts once). The polled status check is
+  // read-only, so this is the only thing that shows a permission dialog.
   const grantMic = async () => {
     try {
-      await window.oatmeal.checkPermissions();
+      await window.oatmeal.requestMic();
     } finally {
       await refresh();
     }

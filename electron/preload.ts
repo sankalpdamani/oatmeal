@@ -52,6 +52,8 @@ const api = {
 
   checkPermissions: (): Promise<{ microphone: boolean; screenRecording: boolean }> =>
     ipcRenderer.invoke("permissions:check"),
+  requestMic: (): Promise<{ microphone: boolean; screenRecording: boolean }> =>
+    ipcRenderer.invoke("permissions:request-mic"),
   relaunch: (): Promise<void> => ipcRenderer.invoke("app:relaunch"),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("open-external", url),
   openPrivacySettings: (pane: "mic" | "screen"): Promise<void> =>
