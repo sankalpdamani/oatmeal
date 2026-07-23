@@ -2,22 +2,28 @@
 
 **The meeting notetaker that never leaves your Mac.**
 
-<p align="center">
-  <a href="https://github.com/sankalpdamani/oatmeal/releases/latest/download/Oatmeal-macOS-arm64.dmg">
-    <img src="https://img.shields.io/badge/⬇%20Download%20for%20macOS-Apple%20Silicon-2f7d32?style=for-the-badge" alt="Download Oatmeal for macOS (Apple Silicon)">
-  </a>
-</p>
+### Install in one command
 
-<p align="center"><sub>Apple Silicon Mac · macOS 13+ · unsigned build — right-click → <b>Open</b> on first launch</sub></p>
+Paste this into **Terminal** (Apple Silicon Mac, macOS 13+):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sankalpdamani/oatmeal/main/install.sh | bash
+```
+
+It downloads the latest build, installs Oatmeal to your Applications, clears the
+macOS security flag, and opens it — no Settings changes and no "unverified
+developer" prompt.
+
+<sub>Prefer clicking? <a href="https://github.com/sankalpdamani/oatmeal/releases/latest/download/Oatmeal-macOS-arm64.dmg">Download the .dmg</a> instead (right-click → <b>Open</b> on first launch). Summaries &amp; chat need <a href="https://ollama.com/download">Ollama</a> running.</sub>
 
 Oatmeal listens to your calls (system audio + microphone), transcribes both
 sides locally with Whisper, keeps a **live summary** as the meeting happens,
 and lets you **chat with the transcript** — powered entirely by models running
 on your machine. No cloud, no account, no API keys.
 
-- **Download:** grab the latest `.dmg` from
-  [Releases](https://github.com/sankalpdamani/oatmeal/releases/latest) (or the
-  button above). Landing page lives in `site/` (deployed on Vercel)
+- **Install:** one command (see [above](#install-in-one-command)), or grab the
+  `.dmg` from [Releases](https://github.com/sankalpdamani/oatmeal/releases/latest).
+  Landing page lives in `site/` (deployed on Vercel)
 - **Speakers for free:** your mic is "Me", system audio is "Them"
 - **Meeting detection:** notices when Zoom/Teams/Webex/FaceTime is using the
   mic and offers to start notes
