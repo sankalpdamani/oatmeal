@@ -203,12 +203,12 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
             <PermRow
               ok={!!status?.permissions.microphone}
               label="Microphone — your side of the call"
-              onFix={() => void window.oatmeal.openPrivacySettings("mic")}
+              onFix={() => void window.oatmeal.requestMic().then(() => refresh())}
             />
             <PermRow
-              ok={!!status?.permissions.screenRecording}
-              label="Screen Recording — system audio (their side)"
-              onFix={() => void window.oatmeal.openPrivacySettings("screen")}
+              ok={!!status?.permissions.systemAudio}
+              label="System Audio — the other side (no screen recording)"
+              onFix={() => void window.oatmeal.requestSystemAudio().then(() => refresh())}
             />
           </div>
         </Section>

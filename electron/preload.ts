@@ -50,13 +50,12 @@ const api = {
   sendChat: (meetingId: string, content: string): Promise<string> =>
     ipcRenderer.invoke("chat:send", meetingId, content),
 
-  checkPermissions: (): Promise<{ microphone: boolean; screenRecording: boolean }> =>
-    ipcRenderer.invoke("permissions:check"),
-  requestMic: (): Promise<{ microphone: boolean; screenRecording: boolean }> =>
-    ipcRenderer.invoke("permissions:request-mic"),
+  requestMic: (): Promise<boolean> => ipcRenderer.invoke("permissions:request-mic"),
+  requestSystemAudio: (): Promise<boolean> =>
+    ipcRenderer.invoke("permissions:request-systemaudio"),
   relaunch: (): Promise<void> => ipcRenderer.invoke("app:relaunch"),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("open-external", url),
-  openPrivacySettings: (pane: "mic" | "screen"): Promise<void> =>
+  openPrivacySettings: (pane: "mic" | "systemaudio"): Promise<void> =>
     ipcRenderer.invoke("open-privacy-settings", pane),
 
   onSegment: (cb: (seg: Segment) => void) => on("segment", cb),

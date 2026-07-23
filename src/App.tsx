@@ -18,13 +18,12 @@ export default function App() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  // Missing mic/screen blocks recording entirely — take over the whole view
-  // with guided setup rather than letting a meeting start and silently fail.
-  const needsPermissions =
-    !!status &&
-    (!status.permissions.microphone || !status.permissions.screenRecording);
-  // Once permissions are in, the only thing left to flag is a missing LLM.
-  const needsLlm = !!status && !needsPermissions && !status.llmUp;
+  // No microphone blocks recording entirely — take over the whole view with
+  // guided setup rather than letting a meeting start and silently fail.
+  const needsPermissions = !!status && !status.permissions.microphone;
+  // System audio and a local LLM are non-blocking nudges once mic is in.
+  const needsBanner =
+    !!status && !needsPermissions && (!status.permissions.systemAudio || !status.llmUp);
 
   return (
     <div className="flex h-full flex-col">
@@ -46,7 +45,7 @@ export default function App() {
         </div>
       )}
 
-      {needsLlm && <SetupBanner onOpenSettings={() => setSettingsOpen(true)} />}
+      {needsBanner && <SetupBanner onOpenSettings={() => setSettingsOpen(true)} />}
 
       <div className="min-h-0 flex-1">
         {needsPermissions ? (
@@ -67,26 +66,12 @@ function SetupBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
   const status = useStore((s) => s.status);
   if (!status) return null;
   const items: { label: string; action?: () => void; actionLabel?: string }[] = [];
-  if (!status.permissions.microphone)
+  if (!status.permissions.systemAudio)
     items.push({
-      label: "Microphone access needed",
-      action: () => void window.oatmeal.openPrivacySettings("mic"),
-      actionLabel: "Open Settings",
+      label: "System Audio not enabled — the other side won't be transcribed",
+      action: () => void window.oatmeal.requestSystemAudio(),
+      actionLabel: "Enable",
     });
-  if (!status.permissions.screenRecording) {
-    items.push({
-      label: "Screen Recording access needed (for system audio)",
-      action: () => void window.oatmeal.openPrivacySettings("screen"),
-      actionLabel: "Open Settings",
-    });
-    // ScreenCaptureKit only picks up the grant on a fresh launch, so people who
-    // just enabled it are stuck until they relaunch — offer that directly.
-    items.push({
-      label: "Already enabled it? Relaunch for macOS to apply it",
-      action: () => void window.oatmeal.relaunch(),
-      actionLabel: "Relaunch",
-    });
-  }
   if (!status.llmUp)
     items.push({
       label: "No local LLM server detected — summaries and chat need one",

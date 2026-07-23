@@ -50,7 +50,7 @@ export interface AppStatus {
   sttModel: string | null;
   llmModel: string | null;
   llmBaseUrl: string;
-  permissions: { microphone: boolean; screenRecording: boolean };
+  permissions: { microphone: boolean; systemAudio: boolean };
 }
 
 export interface DownloadProgress {

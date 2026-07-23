@@ -12,7 +12,6 @@ import AppKit
 import CoreAudio
 import CoreMedia
 import Foundation
-import ScreenCaptureKit
 
 let stdoutLock = NSLock()
 
@@ -89,82 +88,131 @@ final class MicCapture {
     }
 }
 
-// MARK: - System audio capture (ScreenCaptureKit)
+// MARK: - System audio capture (Core Audio process tap)
+//
+// Uses a Core Audio process tap + private aggregate device (macOS 14.4+) to
+// capture system audio. This needs only the lightweight "System Audio Recording
+// Only" permission — NOT Screen Recording, which ScreenCaptureKit would require.
 
-final class SystemCapture: NSObject, SCStreamOutput, SCStreamDelegate {
-    private var stream: SCStream?
+final class SystemAudioTap {
+    private var tapID = AudioObjectID(kAudioObjectUnknown)
+    private var aggregateID = AudioObjectID(0)
+    private var ioProcID: AudioDeviceIOProcID?
+    private var format: AVAudioFormat?
     private var downsampler: Downsampler?
-    private let queue = DispatchQueue(label: "oatmeal.sysaudio")
+    private let queue = DispatchQueue(label: "oatmeal.systap")
 
-    func start() async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(
-            false, onScreenWindowsOnly: false)
-        guard let display = content.displays.first else {
-            throw NSError(domain: "oatmeal", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "no display found"
+    func start() throws {
+        // 1. Tap all system audio (stereo, all processes — Oatmeal plays none, so
+        //    there's nothing of ours to exclude). This is what prompts for the
+        //    "System Audio Recording Only" permission on first use.
+        let desc = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+        desc.name = "Oatmeal System Audio"
+        desc.isPrivate = true
+        desc.muteBehavior = .unmuted
+        var status = AudioHardwareCreateProcessTap(desc, &tapID)
+        guard status == noErr, tapID != kAudioObjectUnknown else {
+            throw NSError(domain: "oatmeal", code: 10, userInfo: [
+                NSLocalizedDescriptionKey: "process tap create failed (\(status))"
             ])
         }
-        let filter = SCContentFilter(display: display, excludingWindows: [])
-        let config = SCStreamConfiguration()
-        config.capturesAudio = true
-        config.excludesCurrentProcessAudio = true
-        config.sampleRate = 48000
-        config.channelCount = 1
-        // We only want audio; keep video cost minimal.
-        config.width = 2
-        config.height = 2
-        config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
 
-        let stream = SCStream(filter: filter, configuration: config, delegate: self)
-        try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
-        try await stream.startCapture()
-        self.stream = stream
-        log("system audio capture started")
+        // 2. Tap UID, needed to attach it to an aggregate device.
+        var uidRef: CFString = "" as CFString
+        var uidSize = UInt32(MemoryLayout<CFString>.size)
+        var uidAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioTapPropertyUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        status = withUnsafeMutablePointer(to: &uidRef) {
+            AudioObjectGetPropertyData(tapID, &uidAddr, 0, nil, &uidSize, $0)
+        }
+        guard status == noErr else {
+            throw NSError(domain: "oatmeal", code: 11, userInfo: [
+                NSLocalizedDescriptionKey: "tap UID read failed (\(status))"
+            ])
+        }
+        let tapUID = uidRef as String
+
+        // 3. Private aggregate device that pulls from the tap.
+        let aggDesc: [String: Any] = [
+            kAudioAggregateDeviceNameKey: "Oatmeal Audio",
+            kAudioAggregateDeviceUIDKey: UUID().uuidString,
+            kAudioAggregateDeviceIsPrivateKey: true,
+            kAudioAggregateDeviceIsStackedKey: false,
+            kAudioAggregateDeviceTapAutoStartKey: true,
+            kAudioAggregateDeviceSubDeviceListKey: [[String: Any]](),
+            kAudioAggregateDeviceTapListKey: [
+                [
+                    kAudioSubTapUIDKey: tapUID,
+                    kAudioSubTapDriftCompensationKey: true,
+                ]
+            ],
+        ]
+        status = AudioHardwareCreateAggregateDevice(aggDesc as CFDictionary, &aggregateID)
+        guard status == noErr, aggregateID != 0 else {
+            throw NSError(domain: "oatmeal", code: 12, userInfo: [
+                NSLocalizedDescriptionKey: "aggregate device create failed (\(status))"
+            ])
+        }
+
+        // 4. Format the aggregate delivers on its input scope.
+        var asbd = AudioStreamBasicDescription()
+        var asbdSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        var fmtAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreamFormat,
+            mScope: kAudioObjectPropertyScopeInput,
+            mElement: 0)
+        status = AudioObjectGetPropertyData(aggregateID, &fmtAddr, 0, nil, &asbdSize, &asbd)
+        guard status == noErr, let fmt = AVAudioFormat(streamDescription: &asbd) else {
+            throw NSError(domain: "oatmeal", code: 13, userInfo: [
+                NSLocalizedDescriptionKey: "aggregate format read failed (\(status))"
+            ])
+        }
+        self.format = fmt
+        self.downsampler = Downsampler(from: fmt)
+
+        // 5. Receive audio via an IOProc and forward it downsampled.
+        status = AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, queue) {
+            [weak self] _, inInputData, _, _, _ in
+            self?.handle(inInputData)
+        }
+        guard status == noErr, ioProcID != nil else {
+            throw NSError(domain: "oatmeal", code: 14, userInfo: [
+                NSLocalizedDescriptionKey: "IOProc create failed (\(status))"
+            ])
+        }
+        status = AudioDeviceStart(aggregateID, ioProcID)
+        guard status == noErr else {
+            throw NSError(domain: "oatmeal", code: 15, userInfo: [
+                NSLocalizedDescriptionKey: "device start failed (\(status))"
+            ])
+        }
+        log("system audio tap started")
     }
 
-    func stream(
-        _ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
-        of type: SCStreamOutputType
-    ) {
-        guard type == .audio, sampleBuffer.isValid else { return }
-        guard let fmtDesc = CMSampleBufferGetFormatDescription(sampleBuffer),
-              let asbdPtr = CMAudioFormatDescriptionGetStreamBasicDescription(fmtDesc)
+    private func handle(_ inInputData: UnsafePointer<AudioBufferList>) {
+        guard let fmt = format else { return }
+        guard let pcm = AVAudioPCMBuffer(pcmFormat: fmt, bufferListNoCopy: inInputData, deallocator: nil)
         else { return }
-        guard let format = AVAudioFormat(streamDescription: asbdPtr) else { return }
-
-        var bufferListSizeNeeded = 0
-        CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-            sampleBuffer, bufferListSizeNeededOut: &bufferListSizeNeeded,
-            bufferListOut: nil, bufferListSize: 0, blockBufferAllocator: nil,
-            blockBufferMemoryAllocator: nil, flags: 0, blockBufferOut: nil)
-        let ablPtr = UnsafeMutableRawPointer.allocate(
-            byteCount: bufferListSizeNeeded, alignment: MemoryLayout<AudioBufferList>.alignment)
-        defer { ablPtr.deallocate() }
-        var blockBuffer: CMBlockBuffer?
-        let abl = ablPtr.assumingMemoryBound(to: AudioBufferList.self)
-        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-            sampleBuffer, bufferListSizeNeededOut: nil, bufferListOut: abl,
-            bufferListSize: bufferListSizeNeeded, blockBufferAllocator: nil,
-            blockBufferMemoryAllocator: nil,
-            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
-            blockBufferOut: &blockBuffer)
-        guard status == noErr else { return }
-
-        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
-        guard frameCount > 0,
-              let pcm = AVAudioPCMBuffer(
-                pcmFormat: format, bufferListNoCopy: abl, deallocator: nil)
-        else { return }
-        pcm.frameLength = frameCount
-
-        if downsampler == nil { downsampler = Downsampler(from: format) }
         guard let data = downsampler?.convert(pcm) else { return }
         writeFrame(tag: UInt8(ascii: "S"), data)
     }
 
-    func stream(_ stream: SCStream, didStopWithError error: Error) {
-        log("system stream stopped: \(error.localizedDescription)")
-        exit(3)
+    func stop() {
+        if let ioProcID = ioProcID {
+            AudioDeviceStop(aggregateID, ioProcID)
+            AudioDeviceDestroyIOProcID(aggregateID, ioProcID)
+            self.ioProcID = nil
+        }
+        if aggregateID != 0 {
+            AudioHardwareDestroyAggregateDevice(aggregateID)
+            aggregateID = 0
+        }
+        if tapID != kAudioObjectUnknown {
+            AudioHardwareDestroyProcessTap(tapID)
+            tapID = AudioObjectID(kAudioObjectUnknown)
+        }
     }
 }
 
@@ -231,29 +279,41 @@ func runDetectWatch() {
 
 // MARK: - Permissions
 
-func printPerms() {
-    let mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-    let screen = CGPreflightScreenCaptureAccess()
-    let obj: [String: Any] = ["microphone": mic, "screenRecording": screen]
+func printJSON(_ obj: [String: Any]) {
     let data = try! JSONSerialization.data(withJSONObject: obj)
     print(String(data: data, encoding: .utf8)!)
 }
 
-// Read-only status. NEVER prompts — safe to call on a poll. (Prompting here is
-// what made the Screen Recording dialog reappear every refresh.)
+// Read-only mic status. NEVER prompts — safe to call on a poll.
 func runPermCheck() {
-    printPerms()
+    let mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    printJSON(["microphone": mic])
 }
 
-// Explicitly request the microphone (prompts once if undecided). Does not touch
-// Screen Recording — that's granted in System Settings and needs a relaunch.
+// Explicitly request the microphone (prompts once if undecided).
 func runRequestMic() {
     if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
         let sem = DispatchSemaphore(value: 0)
         AVCaptureDevice.requestAccess(for: .audio) { _ in sem.signal() }
         sem.wait()
     }
-    printPerms()
+    let mic = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    printJSON(["microphone": mic])
+}
+
+// Explicitly request System Audio Recording by briefly creating a tap, which
+// triggers the macOS prompt. Reports whether the tap could start.
+func runRequestSystemAudio() {
+    let tap = SystemAudioTap()
+    var ok = false
+    do {
+        try tap.start()
+        ok = true
+    } catch {
+        log("system audio request failed: \(error.localizedDescription)")
+    }
+    tap.stop()
+    printJSON(["systemAudio": ok])
 }
 
 // MARK: - Main
@@ -267,20 +327,18 @@ signal(SIGINT) { _ in exit(0) }
 switch cmd {
 case "capture":
     let mic = MicCapture()
-    let sys = SystemCapture()
+    let sys = SystemAudioTap()
     do {
         try mic.start()
     } catch {
         log("mic start failed: \(error.localizedDescription)")
         exit(4)
     }
-    Task {
-        do {
-            try await sys.start()
-        } catch {
-            log("system capture failed: \(error.localizedDescription)")
-            exit(5)
-        }
+    do {
+        try sys.start()
+    } catch {
+        log("system audio tap failed: \(error.localizedDescription)")
+        exit(5)
     }
     RunLoop.main.run()
 case "detect":
@@ -289,6 +347,8 @@ case "permcheck":
     runPermCheck()
 case "reqmic":
     runRequestMic()
+case "reqsysaudio":
+    runRequestSystemAudio()
 case "permissions":
     // Back-compat: treat as a read-only check so nothing prompts on a poll.
     runPermCheck()

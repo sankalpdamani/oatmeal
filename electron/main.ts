@@ -46,41 +46,48 @@ function getSettings(): Settings {
 
 async function getStatus(): Promise<AppStatus> {
   const s = getSettings();
-  const perms = await checkPermissions();
   return {
     llmUp: await llm.llmUp(),
     whisperReady: whisper.whisperReady(),
     sttModel: whisper.currentSttModel() ?? s.sttModel,
     llmModel: s.llmModel,
     llmBaseUrl: s.llmBaseUrl,
-    permissions: perms,
+    permissions: {
+      // Mic has a clean, non-prompting status API. System Audio (Core Audio
+      // taps) has no preflight, so we remember once it has been granted.
+      microphone: await micGranted(),
+      systemAudio: db.getSetting("systemAudioGranted") === "true",
+    },
   };
 }
 
-// Read-only permission status. Safe to call on a poll — never prompts.
-function checkPermissions(): Promise<{ microphone: boolean; screenRecording: boolean }> {
-  return runHelperPerms("permcheck");
-}
-
-// Explicitly ask for the microphone (shows the prompt once). Triggered only by
-// a user action, never by status polling.
-function requestMicPermission(): Promise<{ microphone: boolean; screenRecording: boolean }> {
-  return runHelperPerms("reqmic");
-}
-
-function runHelperPerms(
-  sub: "permcheck" | "reqmic"
-): Promise<{ microphone: boolean; screenRecording: boolean }> {
+function runHelper(sub: string): Promise<Record<string, unknown>> {
   return new Promise((resolve) => {
     execFile(whisper.binaryPath("OatmealAudio"), [sub], { timeout: 15000 }, (err, stdout) => {
-      if (err) return resolve({ microphone: false, screenRecording: false });
+      if (err) return resolve({});
       try {
         resolve(JSON.parse(stdout.trim()));
       } catch {
-        resolve({ microphone: false, screenRecording: false });
+        resolve({});
       }
     });
   });
+}
+
+// Read-only mic status — safe to poll, never prompts.
+async function micGranted(): Promise<boolean> {
+  return !!(await runHelper("permcheck")).microphone;
+}
+
+// Explicit prompts, triggered only by a user action.
+async function requestMicPermission(): Promise<boolean> {
+  return !!(await runHelper("reqmic")).microphone;
+}
+
+async function requestSystemAudioPermission(): Promise<boolean> {
+  const ok = !!(await runHelper("reqsysaudio")).systemAudio;
+  if (ok) db.setSetting("systemAudioGranted", "true");
+  return ok;
 }
 
 function startDetection() {
@@ -170,9 +177,8 @@ async function startRecording(title: string, appName?: string | null): Promise<s
   return id;
 }
 
-// The audio helper died before/while capturing (permissions, no display, …).
-// Tear the recording down instead of leaving the UI stuck "listening", and
-// tell the user what to do — Screen Recording only takes effect after a relaunch.
+// The audio helper died before/while capturing (permissions, format, …).
+// Tear the recording down instead of leaving the UI stuck "listening".
 async function abortRecording(code: number | null): Promise<void> {
   const id = activeMeetingId;
   cancelAutoEnd();
@@ -189,12 +195,17 @@ async function abortRecording(code: number | null): Promise<void> {
     send("recording-state", { meetingId: id, recording: false, reason: "error" });
   }
 
-  // code 5 = ScreenCaptureKit/system-audio couldn't start, almost always the
-  // Screen Recording grant not yet in effect for this launch.
+  if (code === 5) {
+    // System-audio tap couldn't start — the System Audio Recording permission
+    // isn't in effect. Forget the cached grant so the UI re-prompts for it.
+    db.setSetting("systemAudioGranted", "false");
+  }
   const msg =
     code === 5
-      ? "Couldn't capture system audio. If you just enabled Screen Recording for Oatmeal, quit and reopen the app — macOS only applies it on the next launch."
-      : `Audio helper stopped (code ${code}). Check Screen Recording & Microphone permissions, then relaunch Oatmeal.`;
+      ? "Couldn't capture system audio. Enable System Audio Recording for Oatmeal in System Settings ▸ Privacy & Security, then try again."
+      : code === 4
+        ? "Couldn't access the microphone. Grant Microphone access to Oatmeal in System Settings ▸ Privacy & Security."
+        : `Audio helper stopped (code ${code}). Check Oatmeal's Microphone and System Audio permissions.`;
   send("recorder-error", msg);
 }
 
@@ -335,14 +346,15 @@ ${transcript || "(no transcript yet)"}`;
     return full;
   });
 
-  ipcMain.handle("permissions:check", () => checkPermissions());
   ipcMain.handle("permissions:request-mic", () => requestMicPermission());
+  ipcMain.handle("permissions:request-systemaudio", () => requestSystemAudioPermission());
   ipcMain.handle("app:relaunch", () => {
     app.relaunch();
     app.exit(0);
   });
   ipcMain.handle("open-external", (_e, url: string) => shell.openExternal(url));
-  ipcMain.handle("open-privacy-settings", (_e, pane: "mic" | "screen") => {
+  ipcMain.handle("open-privacy-settings", (_e, pane: "mic" | "systemaudio") => {
+    // The "System Audio Recording Only" list lives in the Screen Recording pane.
     const url =
       pane === "mic"
         ? "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"

@@ -8,8 +8,8 @@ mkdir -p resources/bin
 # model is present (CI populates it; a plain local build leaves it empty and the
 # app falls back to downloading a model in Settings).
 mkdir -p resources/models
-swiftc -O -o resources/bin/OatmealAudio native/OatmealAudio.swift \
-  -framework ScreenCaptureKit \
+# macOS 14.4+ for the Core Audio process-tap / "System Audio Recording Only" APIs.
+swiftc -O -target arm64-apple-macos14.4 -o resources/bin/OatmealAudio native/OatmealAudio.swift \
   -framework AVFoundation \
   -framework CoreMedia \
   -framework CoreAudio \

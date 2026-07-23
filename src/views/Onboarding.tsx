@@ -16,13 +16,20 @@ export default function Onboarding() {
   }, [refresh]);
 
   const mic = !!status?.permissions.microphone;
-  const screen = !!status?.permissions.screenRecording;
+  const systemAudio = !!status?.permissions.systemAudio;
 
-  // Explicitly request the mic (prompts once). The polled status check is
-  // read-only, so this is the only thing that shows a permission dialog.
+  // Explicit requests (prompt once). The polled status check is read-only, so
+  // these are the only things that show a permission dialog.
   const grantMic = async () => {
     try {
       await window.oatmeal.requestMic();
+    } finally {
+      await refresh();
+    }
+  };
+  const grantSystemAudio = async () => {
+    try {
+      await window.oatmeal.requestSystemAudio();
     } finally {
       await refresh();
     }
@@ -36,7 +43,7 @@ export default function Onboarding() {
           Welcome to Oatmeal
         </h1>
         <p className="mb-6 text-center text-[13px] leading-relaxed text-ink-secondary">
-          Two quick macOS permissions and you're set. Everything — audio,
+          Two quick audio permissions and you're set. Everything — audio,
           transcripts, notes — stays on this Mac.
         </p>
 
@@ -55,30 +62,20 @@ export default function Onboarding() {
           />
           <Step
             n={2}
-            done={screen}
-            title="Screen Recording"
-            desc="Captures the other side's audio (system audio)."
-            primary={
-              screen
+            done={systemAudio}
+            title="System Audio"
+            desc="Captures the other side of the call. No screen recording."
+            primary={systemAudio ? undefined : { label: "Grant", onClick: grantSystemAudio }}
+            secondary={
+              systemAudio
                 ? undefined
-                : { label: "Open Settings", onClick: () => void window.oatmeal.openPrivacySettings("screen") }
+                : {
+                    label: "Open Settings",
+                    onClick: () => void window.oatmeal.openPrivacySettings("systemaudio"),
+                  }
             }
           />
         </div>
-
-        {!screen && (
-          <div className="mt-4 rounded-lg bg-surface-tint px-3 py-2.5 text-[13px] leading-relaxed">
-            Turn on <b>Oatmeal</b> under Screen&nbsp;Recording, then relaunch —
-            macOS only applies that permission on the next launch.
-          </div>
-        )}
-
-        <button
-          onClick={() => void window.oatmeal.relaunch()}
-          className="mt-4 w-full rounded-lg bg-accent px-4 py-2.5 text-[14px] font-semibold text-ink-inverse hover:bg-accent-hover"
-        >
-          Relaunch Oatmeal
-        </button>
 
         <p className="mt-5 text-center text-[12px] leading-relaxed text-ink-tertiary">
           Summaries &amp; chat use a local model (Ollama, LM Studio, …) — optional;
