@@ -115,7 +115,7 @@ export class Recorder {
     // Serialize whisper calls; the server handles one inference at a time well.
     this.queue = this.queue.then(async () => {
       try {
-        const text = await transcribeChunk(pcm);
+        const text = cleanTranscript(await transcribeChunk(pcm));
         if (!text || isNoise(text)) return;
         const seg = db.addSegment(this.meetingId, st.speaker, text, t0Ms, t1Ms);
         this.onSegment(seg);
@@ -133,6 +133,18 @@ export class Recorder {
     this.proc = null;
     await this.queue;
   }
+}
+
+// Whisper emits bracketed non-speech tags — [BLANK_AUDIO], (silence), [MUSIC] —
+// which can appear mid- or end-of-line on otherwise real speech. Strip them
+// everywhere before the whole-line noise check below sees the text.
+const TAG_RE =
+  /[\[(]\s*(blank_audio|silence|music|inaudible|no ?speech|no ?audio|applause|noise|sound)\s*[\])]/gi;
+function cleanTranscript(text: string): string {
+  return (text ?? "")
+    .replace(TAG_RE, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 // Whisper hallucinates fillers on near-silent audio; drop the classics.
