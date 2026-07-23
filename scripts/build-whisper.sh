@@ -33,10 +33,19 @@ else
   git -C "$SRC" checkout "$WHISPER_CPP_REF"
 fi
 
-# 2. Configure + build the server (Metal is on by default on Apple Silicon).
+# 2. Configure + build the server as a SELF-CONTAINED binary.
+#    BUILD_SHARED_LIBS=OFF statically links libwhisper/libggml into the
+#    executable so the single binary we bundle in the app has no external
+#    .dylib dependencies to lose. GGML_METAL_EMBED_LIBRARY bakes the Metal
+#    shaders into the binary too, so there is no separate .metallib to ship.
 #    Prefer the named target; fall back to a full build if the target name has
 #    drifted across whisper.cpp versions.
-cmake -S "$SRC" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release >/dev/null
+#    (Metal is auto-enabled on Apple Silicon; the embed flag only applies there.)
+cmake -S "$SRC" -B "$BUILD" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_SHARED_LIBS=OFF \
+  -DGGML_METAL_EMBED_LIBRARY=ON \
+  -DWHISPER_BUILD_TESTS=OFF >/dev/null
 cmake --build "$BUILD" -j --target whisper-server \
   || cmake --build "$BUILD" -j
 
