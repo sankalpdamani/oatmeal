@@ -7,10 +7,16 @@
   "main": "dist-electron/main.js",
   "author": "Sankalp Damani",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "doctor": "bash scripts/doctor.sh",
     "dev": "vite",
     "build": "npm run build:native && tsc -p tsconfig.electron.json --noEmit && vite build",
     "build:native": "bash scripts/build-native.sh",
+    "build:whisper": "bash scripts/build-whisper.sh",
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit",
     "dist": "npm run build && electron-builder --mac --arm64",
     "rebuild": "electron-rebuild -f -w better-sqlite3"
