@@ -1,0 +1,61 @@
+name: Release
+
+# Builds the macOS (Apple Silicon) DMG on a real Mac runner and publishes it to
+# a GitHub Release, so the "Download for macOS" button in the README always
+# points at a fresh, installable build. Ad-hoc signed only — no Apple secrets
+# required.
+#
+# Trigger by pushing a version tag:  git tag v0.1.0 && git push origin v0.1.0
+# Or run manually from the Actions tab (workflow_dispatch), which publishes/
+# refreshes a rolling "latest" prerelease.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    runs-on: macos-14 # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Ensure cmake (builds whisper.cpp)
+        run: brew list cmake >/dev/null 2>&1 || brew install cmake
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      - name: Build whisper-server (pinned whisper.cpp)
+        run: npm run build:whisper
+
+      - name: Rebuild native modules for Electron
+        run: npm run rebuild
+
+      - name: Build DMG
+        run: npm run dist
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.dmg
+          fail_on_unmatched_files: true
+
+      - name: Publish rolling "latest" build (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          prerelease: true
+          files: release/*.dmg
+          fail_on_unmatched_files: true

@@ -49,6 +49,7 @@
     "directories": { "output": "release" },
     "files": ["dist/**", "dist-electron/**"],
     "afterPack": "scripts/after-pack.cjs",
+    "artifactName": "Oatmeal-macOS-arm64.${ext}",
     "extraResources": [
       { "from": "resources/bin", "to": "bin" }
     ],
