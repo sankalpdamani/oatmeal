@@ -267,13 +267,61 @@ function transcriptMarkdown(meetingId: string): string {
   return `# ${m?.title ?? "Meeting"}\n\n_${when}_\n\n${body || "_No transcript captured._"}\n`;
 }
 
-function buildTranscriptContext(meetingId: string): string {
+const STOPWORDS = new Set(
+  "the a an and or of to in on for is are was were be been do does did what who how why when where which that this it its as at by with from about into over your you our their they them we".split(
+    " "
+  )
+);
+function tokenize(text: string): string[] {
+  return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
+    (t) => t.length > 2 && !STOPWORDS.has(t)
+  );
+}
+
+// Lightweight lexical retrieval: send the transcript lines most relevant to the
+// question (plus their neighbours for context) instead of the whole transcript.
+// Keeps the prompt small — much faster to process, and avoids overflowing the
+// local model's context window (which was making some chats fail).
+function retrieveTranscript(meetingId: string, query: string, maxChars = 4000): string {
   const segs = db.listSegments(meetingId);
-  // Guard the context window: keep the most recent ~24k chars.
-  const lines = segs.map((s) => `${s.speaker === "me" ? "Me" : "Them"}: ${s.text}`);
-  let text = lines.join("\n");
-  if (text.length > 24000) text = "…(earlier transcript truncated)\n" + text.slice(-24000);
-  return text;
+  if (segs.length === 0) return "";
+  const fmt = (i: number) => `${segs[i].speaker === "me" ? "Me" : "Them"}: ${segs[i].text}`;
+
+  const recentTail = (): string => {
+    const all = segs.map((_, i) => fmt(i)).join("\n");
+    return all.length > maxChars ? "…\n" + all.slice(-maxChars) : all;
+  };
+
+  const qTerms = new Set(tokenize(query));
+  // No usable query terms (e.g. "say more") → fall back to the recent tail.
+  if (qTerms.size === 0) return recentTail();
+
+  const scored = segs.map((s, i) => {
+    let score = 0;
+    for (const t of tokenize(s.text)) if (qTerms.has(t)) score++;
+    return { i, score };
+  });
+  if (!scored.some((x) => x.score > 0)) return recentTail();
+
+  // Keep the top-scoring lines and their immediate neighbours, in order.
+  const keep = new Set<number>();
+  for (const { i } of [...scored]
+    .sort((a, b) => b.score - a.score || b.i - a.i)
+    .slice(0, 30)) {
+    keep.add(i - 1);
+    keep.add(i);
+    keep.add(i + 1);
+  }
+  const lines: string[] = [];
+  let chars = 0;
+  for (let i = 0; i < segs.length; i++) {
+    if (!keep.has(i) || i < 0) continue;
+    const line = fmt(i);
+    if (chars + line.length > maxChars) break;
+    lines.push(line);
+    chars += line.length + 1;
+  }
+  return lines.join("\n");
 }
 
 function registerIpc() {
@@ -338,23 +386,29 @@ function registerIpc() {
     const s = getSettings();
     db.addChatMessage(meetingId, "user", content);
     const meeting = db.getMeeting(meetingId);
-    const transcript = buildTranscriptContext(meetingId);
-    const history = db.listChatMessages(meetingId).slice(-12);
-    const system = `You answer questions about a meeting using its transcript and summary. "Me" is the app user; "Them" is everyone else. Quote the transcript when helpful. If something isn't in the transcript, say so plainly.
+    // Retrieve only the relevant transcript excerpts for this question, plus the
+    // summary (a compact whole-meeting view). Keeps the prompt small and fast.
+    const transcript = retrieveTranscript(meetingId, content);
+    const history = db.listChatMessages(meetingId).slice(-8);
+    const system = `You answer questions about a meeting using its summary and the relevant transcript excerpts below. "Me" is the app user; "Them" is everyone else. Quote the excerpts when helpful. If the answer isn't in them, say so plainly.
 
 MEETING: ${meeting?.title ?? ""}
 SUMMARY:
 ${meeting?.summaryMd || "(no summary yet)"}
 
-TRANSCRIPT:
+RELEVANT TRANSCRIPT:
 ${transcript || "(no transcript yet)"}`;
     const messages = [
       { role: "system" as const, content: system },
       ...history.map((m) => ({ role: m.role, content: m.content })),
     ];
-    const full = await llm.chatStream(s.llmModel, messages, (t) =>
-      send("chat-token", meetingId, t)
-    );
+    let full = (
+      await llm.chatStream(s.llmModel, messages, (t) => send("chat-token", meetingId, t))
+    ).trim();
+    if (!full) {
+      full =
+        "I couldn't get a reply from the local model — it may have run out of context or timed out. Try a shorter question, or pick a smaller/faster model in Settings.";
+    }
     db.addChatMessage(meetingId, "assistant", full);
     send("chat-done", meetingId, full);
     return full;

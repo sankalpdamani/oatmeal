@@ -41,6 +41,19 @@ export async function listLlmModels(): Promise<LlmModel[]> {
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
+async function errorDetail(res: Response, model: string): Promise<string> {
+  let body = "";
+  try {
+    body = (await res.text()).slice(0, 300);
+  } catch {
+    /* ignore */
+  }
+  if (res.status === 404) {
+    return `Model "${model}" isn't available on the LLM server. Load it (e.g. \`ollama pull ${model}\`) or pick an installed model in Settings.`;
+  }
+  return `LLM request failed (HTTP ${res.status})${body ? ` — ${body}` : ""}`;
+}
+
 export interface ChatTurn {
   role: "system" | "user" | "assistant";
   content: string;
@@ -53,7 +66,7 @@ export async function chatOnce(model: string, messages: ChatTurn[]): Promise<str
     body: JSON.stringify({ model, messages, stream: false }),
     signal: AbortSignal.timeout(180000),
   });
-  if (!res.ok) throw new Error(`LLM chat: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(await errorDetail(res, model));
   const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   return json.choices?.[0]?.message?.content ?? "";
 }
@@ -68,7 +81,7 @@ export async function chatStream(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model, messages, stream: true }),
   });
-  if (!res.ok || !res.body) throw new Error(`LLM chat: HTTP ${res.status}`);
+  if (!res.ok || !res.body) throw new Error(await errorDetail(res, model));
   // OpenAI streaming is server-sent events: "data: {json}\n\n", ending "data: [DONE]".
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
