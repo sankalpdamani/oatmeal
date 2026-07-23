@@ -18,7 +18,7 @@
     "build:native": "bash scripts/build-native.sh",
     "build:whisper": "bash scripts/build-whisper.sh",
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit",
-    "dist": "npm run build && electron-builder --mac --arm64",
+    "dist": "npm run build && electron-builder --mac --arm64 --publish never",
     "rebuild": "electron-rebuild -f -w better-sqlite3"
   },
   "devDependencies": {
