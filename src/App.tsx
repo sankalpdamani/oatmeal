@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useStore } from "./store";
 import Home from "./views/Home";
 import MeetingView from "./views/MeetingView";
+import Onboarding from "./views/Onboarding";
 import SettingsModal from "./views/SettingsModal";
 
 export default function App() {
@@ -17,11 +18,13 @@ export default function App() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  const needsSetup =
-    status &&
-    (!status.llmUp ||
-      !status.permissions.microphone ||
-      !status.permissions.screenRecording);
+  // Missing mic/screen blocks recording entirely — take over the whole view
+  // with guided setup rather than letting a meeting start and silently fail.
+  const needsPermissions =
+    !!status &&
+    (!status.permissions.microphone || !status.permissions.screenRecording);
+  // Once permissions are in, the only thing left to flag is a missing LLM.
+  const needsLlm = !!status && !needsPermissions && !status.llmUp;
 
   return (
     <div className="flex h-full flex-col">
@@ -43,10 +46,16 @@ export default function App() {
         </div>
       )}
 
-      {needsSetup && <SetupBanner onOpenSettings={() => setSettingsOpen(true)} />}
+      {needsLlm && <SetupBanner onOpenSettings={() => setSettingsOpen(true)} />}
 
       <div className="min-h-0 flex-1">
-        {view.name === "home" ? <Home /> : <MeetingView meetingId={view.id} />}
+        {needsPermissions ? (
+          <Onboarding />
+        ) : view.name === "home" ? (
+          <Home />
+        ) : (
+          <MeetingView meetingId={view.id} />
+        )}
       </div>
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
