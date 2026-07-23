@@ -16,7 +16,8 @@ export default function Home() {
     try {
       await startMeeting(title, appName);
     } catch (e) {
-      alert(String(e));
+      console.error(e);
+      alert("Couldn't start recording. Check Oatmeal's Microphone and System Audio permissions in System Settings, then try again.");
     } finally {
       setStarting(false);
     }

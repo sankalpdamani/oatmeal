@@ -37,7 +37,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     try {
       await window.oatmeal.downloadSttModel(id);
     } catch (e) {
-      alert(String(e));
+      console.error(e);
+      alert("Couldn't download that model. Check your internet connection and try again.");
     } finally {
       setBusy(null);
     }
@@ -49,7 +50,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
       await window.oatmeal.useSttModel(id);
       await refresh();
     } catch (e) {
-      alert(String(e));
+      console.error(e);
+      alert("Couldn't switch to that model. Please try again.");
     } finally {
       setBusy(null);
     }

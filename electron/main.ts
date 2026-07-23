@@ -214,12 +214,13 @@ async function abortRecording(code: number | null): Promise<void> {
     // isn't in effect. Forget the cached grant so the UI re-prompts for it.
     db.setSetting("systemAudioGranted", "false");
   }
+  console.error(`audio helper exited with code ${code}`);
   const msg =
     code === 5
       ? "Couldn't capture system audio. Enable System Audio Recording for Oatmeal in System Settings ▸ Privacy & Security, then try again."
       : code === 4
         ? "Couldn't access the microphone. Grant Microphone access to Oatmeal in System Settings ▸ Privacy & Security."
-        : `Audio helper stopped (code ${code}). Check Oatmeal's Microphone and System Audio permissions.`;
+        : "Audio capture stopped unexpectedly. Check Oatmeal's Microphone and System Audio permissions in System Settings, then start again.";
   send("recorder-error", msg);
 }
 
@@ -251,7 +252,10 @@ async function stopRecording(reason: "manual" | "auto" = "manual"): Promise<void
     if (title && title !== existing?.title) db.renameMeeting(id, title);
   } catch (e) {
     console.error("finalize failed:", e);
-    send("recorder-error", `Couldn't write the summary — is your LLM server running? (${String(e)})`);
+    send(
+      "recorder-error",
+      "Couldn't write the summary — your local AI wasn't reachable. Open it (e.g. Ollama), then reopen this meeting to try again."
+    );
   }
   const m = db.getMeeting(id);
   send("finalized", { meetingId: id, title: m?.title ?? "", summaryMd: m?.summaryMd ?? "" });
@@ -402,12 +406,17 @@ ${transcript || "(no transcript yet)"}`;
       { role: "system" as const, content: system },
       ...history.map((m) => ({ role: m.role, content: m.content })),
     ];
-    let full = (
-      await llm.chatStream(s.llmModel, messages, (t) => send("chat-token", meetingId, t))
-    ).trim();
+    let full = "";
+    try {
+      full = (
+        await llm.chatStream(s.llmModel, messages, (t) => send("chat-token", meetingId, t))
+      ).trim();
+    } catch (e) {
+      // ollama.ts throws customer-friendly messages; show one as the reply.
+      full = (e as Error)?.message || "Something went wrong. Please try again.";
+    }
     if (!full) {
-      full =
-        "I couldn't get a reply from the local model — it may have run out of context or timed out. Try a shorter question, or pick a smaller/faster model in Settings.";
+      full = "I didn't get a reply that time. Try asking again, or choose a different model in Settings.";
     }
     db.addChatMessage(meetingId, "assistant", full);
     send("chat-done", meetingId, full);

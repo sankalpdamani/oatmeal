@@ -118,7 +118,8 @@ export const useStore = create<State>((set, get) => ({
             id: -Date.now() - 1,
             meetingId: id,
             role: "assistant",
-            content: `Something went wrong talking to the LLM server: ${String(e)}`,
+            content:
+              "Something went wrong getting a reply. Make sure your local AI is running, then try again.",
             createdAt: Date.now(),
           },
         ],

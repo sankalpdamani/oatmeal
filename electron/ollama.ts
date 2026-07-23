@@ -41,17 +41,23 @@ export async function listLlmModels(): Promise<LlmModel[]> {
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
-async function errorDetail(res: Response, model: string): Promise<string> {
+// Customer-facing messages (no status codes, jargon, or shell commands). Dev
+// detail is logged to the console for debugging.
+const UNREACHABLE_MSG =
+  "Can't reach your local AI right now. Make sure it's running (e.g. open Ollama), then try again.";
+
+async function llmError(res: Response, model: string): Promise<Error> {
   let body = "";
   try {
-    body = (await res.text()).slice(0, 300);
+    body = (await res.text()).slice(0, 500);
   } catch {
     /* ignore */
   }
+  console.error(`LLM HTTP ${res.status} for model "${model}": ${body}`);
   if (res.status === 404) {
-    return `Model "${model}" isn't available on the LLM server. Load it (e.g. \`ollama pull ${model}\`) or pick an installed model in Settings.`;
+    return new Error("That AI model isn't ready. Open Settings and choose a model to use.");
   }
-  return `LLM request failed (HTTP ${res.status})${body ? ` — ${body}` : ""}`;
+  return new Error("Your local AI had trouble answering that. Please try again in a moment.");
 }
 
 export interface ChatTurn {
@@ -60,13 +66,18 @@ export interface ChatTurn {
 }
 
 export async function chatOnce(model: string, messages: ChatTurn[]): Promise<string> {
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, stream: false }),
-    signal: AbortSignal.timeout(180000),
-  });
-  if (!res.ok) throw new Error(await errorDetail(res, model));
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, messages, stream: false }),
+      signal: AbortSignal.timeout(180000),
+    });
+  } catch {
+    throw new Error(UNREACHABLE_MSG);
+  }
+  if (!res.ok) throw await llmError(res, model);
   const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   return json.choices?.[0]?.message?.content ?? "";
 }
@@ -76,12 +87,17 @@ export async function chatStream(
   messages: ChatTurn[],
   onToken: (t: string) => void
 ): Promise<string> {
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, stream: true }),
-  });
-  if (!res.ok || !res.body) throw new Error(await errorDetail(res, model));
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, messages, stream: true }),
+    });
+  } catch {
+    throw new Error(UNREACHABLE_MSG);
+  }
+  if (!res.ok || !res.body) throw await llmError(res, model);
   // OpenAI streaming is server-sent events: "data: {json}\n\n", ending "data: [DONE]".
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
