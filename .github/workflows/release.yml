@@ -49,10 +49,10 @@ jobs:
       - name: Build app (native helper + renderer)
         run: npm run build
 
-      # Two variants: a small "lite" DMG (base.en only) and the full DMG
-      # (base.en + small.en). The installer picks one per machine; both are
-      # offered as manual links.
-      - name: Bundle base.en (both variants)
+      # Two variants, one model each: lite = base.en (small/fast),
+      # full = small.en (higher accuracy). The installer picks one per machine;
+      # both are offered as manual links.
+      - name: Bundle base.en (lite)
         run: |
           mkdir -p resources/models
           curl -fL --retry 3 -o resources/models/ggml-base.en.bin \
@@ -61,12 +61,13 @@ jobs:
       - name: Package lite DMG (base.en only)
         run: npx electron-builder --mac --arm64 --publish never -c.artifactName='Oatmeal-macOS-arm64-lite.${ext}'
 
-      - name: Bundle small.en (full variant)
+      - name: Swap to small.en (full)
         run: |
+          rm -f resources/models/ggml-base.en.bin
           curl -fL --retry 3 -o resources/models/ggml-small.en.bin \
             https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin
 
-      - name: Package full DMG (base.en + small.en)
+      - name: Package full DMG (small.en only)
         run: npx electron-builder --mac --arm64 --publish never
 
       - name: Publish release

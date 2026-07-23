@@ -18,10 +18,10 @@ Settings changes and no "unverified developer" prompt. Force a build with
 **Prefer to click?** Two builds — you can switch Whisper models inside the app
 either way (Settings ▸ Transcription):
 
-| Build | Bundled models | Size | Best for |
+| Build | Bundled model | Size | Best for |
 |---|---|---|---|
-| [**Full**](https://github.com/sankalpdamani/oatmeal/releases/latest/download/Oatmeal-macOS-arm64.dmg) | base.en + small.en | ~700 MB | 16 GB+ Macs — best accuracy out of the box |
-| [**Lite**](https://github.com/sankalpdamani/oatmeal/releases/latest/download/Oatmeal-macOS-arm64-lite.dmg) | base.en only | ~250 MB | 8 GB Macs / slow connections — fastest |
+| [**Full**](https://github.com/sankalpdamani/oatmeal/releases/latest/download/Oatmeal-macOS-arm64.dmg) | small.en | ~550 MB | 16 GB+ Macs — best accuracy out of the box |
+| [**Lite**](https://github.com/sankalpdamani/oatmeal/releases/latest/download/Oatmeal-macOS-arm64-lite.dmg) | base.en | ~250 MB | 8 GB Macs / slow connections — fastest |
 
 <sub>Right-click → <b>Open</b> on first launch (unsigned build). Summaries &amp; chat need a local LLM like <a href="https://ollama.com/download">Ollama</a> running.</sub>
 
