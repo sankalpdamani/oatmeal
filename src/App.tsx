@@ -64,12 +64,20 @@ function SetupBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
       action: () => void window.oatmeal.openPrivacySettings("mic"),
       actionLabel: "Open Settings",
     });
-  if (!status.permissions.screenRecording)
+  if (!status.permissions.screenRecording) {
     items.push({
       label: "Screen Recording access needed (for system audio)",
       action: () => void window.oatmeal.openPrivacySettings("screen"),
       actionLabel: "Open Settings",
     });
+    // ScreenCaptureKit only picks up the grant on a fresh launch, so people who
+    // just enabled it are stuck until they relaunch — offer that directly.
+    items.push({
+      label: "Already enabled it? Relaunch for macOS to apply it",
+      action: () => void window.oatmeal.relaunch(),
+      actionLabel: "Relaunch",
+    });
+  }
   if (!status.llmUp)
     items.push({
       label: "No local LLM server detected — summaries and chat need one",

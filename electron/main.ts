@@ -151,11 +151,39 @@ async function startRecording(title: string, appName?: string | null): Promise<s
   recorder = new Recorder(
     id,
     (seg) => send("segment", seg),
-    (msg) => send("recorder-error", msg)
+    (code) => void abortRecording(code)
   );
   recorder.start();
   send("recording-state", { meetingId: id, recording: true });
   return id;
+}
+
+// The audio helper died before/while capturing (permissions, no display, …).
+// Tear the recording down instead of leaving the UI stuck "listening", and
+// tell the user what to do — Screen Recording only takes effect after a relaunch.
+async function abortRecording(code: number | null): Promise<void> {
+  const id = activeMeetingId;
+  cancelAutoEnd();
+  await recorder?.stop().catch(() => {});
+  recorder = null;
+  activeMeetingId = null;
+  startedByApp = null;
+  notifiedForCurrentMeeting = false;
+
+  if (id) {
+    // Nothing usable was captured — discard the empty meeting we just created.
+    if (db.listSegments(id).length === 0) db.deleteMeeting(id);
+    else db.endMeeting(id);
+    send("recording-state", { meetingId: id, recording: false, reason: "error" });
+  }
+
+  // code 5 = ScreenCaptureKit/system-audio couldn't start, almost always the
+  // Screen Recording grant not yet in effect for this launch.
+  const msg =
+    code === 5
+      ? "Couldn't capture system audio. If you just enabled Screen Recording for Oatmeal, quit and reopen the app — macOS only applies it on the next launch."
+      : `Audio helper stopped (code ${code}). Check Screen Recording & Microphone permissions, then relaunch Oatmeal.`;
+  send("recorder-error", msg);
 }
 
 // Stop capture, then generate the polished note + AI title (Granola-style).
@@ -296,6 +324,10 @@ ${transcript || "(no transcript yet)"}`;
   });
 
   ipcMain.handle("permissions:check", () => checkPermissions());
+  ipcMain.handle("app:relaunch", () => {
+    app.relaunch();
+    app.exit(0);
+  });
   ipcMain.handle("open-external", (_e, url: string) => shell.openExternal(url));
   ipcMain.handle("open-privacy-settings", (_e, pane: "mic" | "screen") => {
     const url =

@@ -28,16 +28,16 @@ export class Recorder {
   private queue: Promise<void> = Promise.resolve();
   private streams: Record<"M" | "S", StreamState>;
   private onSegment: (s: Segment) => void;
-  private onError: (msg: string) => void;
+  private onFatalExit: (code: number | null) => void;
 
   constructor(
     meetingId: string,
     onSegment: (s: Segment) => void,
-    onError: (msg: string) => void
+    onFatalExit: (code: number | null) => void
   ) {
     this.meetingId = meetingId;
     this.onSegment = onSegment;
-    this.onError = onError;
+    this.onFatalExit = onFatalExit;
     this.streams = {
       M: { speaker: "me", buf: [], bufMs: 0, silenceMs: 0, startedAtMs: 0 },
       S: { speaker: "them", buf: [], bufMs: 0, silenceMs: 0, startedAtMs: 0 },
@@ -65,11 +65,10 @@ export class Recorder {
     });
     this.proc.on("exit", (code) => {
       this.proc = null;
-      if (!this.stopped && code !== 0) {
-        this.onError(
-          `Audio helper stopped (code ${code}). Check Screen Recording & Microphone permissions.`
-        );
-      }
+      // The helper exits non-zero when capture can't start (e.g. code 5 =
+      // ScreenCaptureKit/system-audio failed). Report it so the recording is
+      // torn down instead of appearing to run with no audio.
+      if (!this.stopped && code !== 0) this.onFatalExit(code);
     });
   }
 
