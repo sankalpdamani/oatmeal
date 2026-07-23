@@ -226,7 +226,6 @@ let meetingBundleIDs: [String: String] = [
     "com.webex.meetingmanager": "Webex",
     "com.apple.FaceTime": "FaceTime",
     "com.hnc.Discord": "Discord",
-    "com.tinyspeck.slackmacgap": "Slack",
 ]
 
 func micInUseElsewhere() -> Bool {
