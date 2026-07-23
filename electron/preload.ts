@@ -4,8 +4,8 @@ import type {
   ChatMessage,
   DetectionState,
   DownloadProgress,
+  LlmModel,
   Meeting,
-  OllamaModel,
   Segment,
   Settings,
   SttModel,
@@ -45,8 +45,7 @@ const api = {
   downloadSttModel: (id: string): Promise<void> => ipcRenderer.invoke("stt:download", id),
   useSttModel: (id: string): Promise<void> => ipcRenderer.invoke("stt:use", id),
 
-  listOllamaModels: (): Promise<OllamaModel[]> => ipcRenderer.invoke("ollama:list"),
-  pullOllamaModel: (name: string): Promise<void> => ipcRenderer.invoke("ollama:pull", name),
+  listLlmModels: (): Promise<LlmModel[]> => ipcRenderer.invoke("llm:list"),
 
   sendChat: (meetingId: string, content: string): Promise<string> =>
     ipcRenderer.invoke("chat:send", meetingId, content),

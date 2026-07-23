@@ -34,11 +34,8 @@ export interface SttModel {
   installed: boolean;
 }
 
-export interface OllamaModel {
-  name: string;
-  sizeBytes: number;
-  installed: boolean;
-  recommended?: string;
+export interface LlmModel {
+  id: string;
 }
 
 export interface DetectionState {
@@ -48,16 +45,17 @@ export interface DetectionState {
 }
 
 export interface AppStatus {
-  ollamaUp: boolean;
+  llmUp: boolean;
   whisperReady: boolean;
   sttModel: string | null;
   llmModel: string | null;
+  llmBaseUrl: string;
   permissions: { microphone: boolean; screenRecording: boolean };
 }
 
 export interface DownloadProgress {
   id: string;
-  kind: "stt" | "ollama";
+  kind: "stt";
   pct: number;
   status: "downloading" | "done" | "error";
   error?: string;
@@ -66,5 +64,6 @@ export interface DownloadProgress {
 export interface Settings {
   sttModel: string;
   llmModel: string;
+  llmBaseUrl: string;
   detectionEnabled: boolean;
 }

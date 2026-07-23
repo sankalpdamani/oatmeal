@@ -19,7 +19,7 @@ export default function App() {
 
   const needsSetup =
     status &&
-    (!status.ollamaUp ||
+    (!status.llmUp ||
       !status.permissions.microphone ||
       !status.permissions.screenRecording);
 
@@ -70,9 +70,9 @@ function SetupBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
       action: () => void window.oatmeal.openPrivacySettings("screen"),
       actionLabel: "Open Settings",
     });
-  if (!status.ollamaUp)
+  if (!status.llmUp)
     items.push({
-      label: "Ollama isn't running — summaries and chat need it",
+      label: "No local LLM server detected — summaries and chat need one",
       action: () => void window.oatmeal.openExternal("https://ollama.com/download"),
       actionLabel: "Get Ollama",
     });

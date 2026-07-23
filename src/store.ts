@@ -118,7 +118,7 @@ export const useStore = create<State>((set, get) => ({
             id: -Date.now() - 1,
             meetingId: id,
             role: "assistant",
-            content: `Something went wrong talking to Ollama: ${String(e)}`,
+            content: `Something went wrong talking to the LLM server: ${String(e)}`,
             createdAt: Date.now(),
           },
         ],

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
-import type { OllamaModel, SttModel } from "../../shared/types";
+import type { LlmModel, SttModel } from "../../shared/types";
 
 export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const settings = useStore((s) => s.settings);
@@ -8,14 +8,14 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
   const downloads = useStore((s) => s.downloads);
   const refresh = useStore((s) => s.refresh);
   const [stt, setStt] = useState<SttModel[]>([]);
-  const [llms, setLlms] = useState<OllamaModel[]>([]);
+  const [llms, setLlms] = useState<LlmModel[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = async () => {
     const sttModels = await window.oatmeal.listSttModels();
     setStt(sttModels);
     try {
-      setLlms(await window.oatmeal.listOllamaModels());
+      setLlms(await window.oatmeal.listLlmModels());
     } catch {
       setLlms([]);
     }
@@ -55,20 +55,17 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const pullLlm = async (name: string) => {
-    setBusy(name);
-    try {
-      await window.oatmeal.pullOllamaModel(name);
-    } catch (e) {
-      alert(String(e));
-    } finally {
-      setBusy(null);
-    }
+  const useLlm = async (name: string) => {
+    const model = name.trim();
+    if (!model) return;
+    await window.oatmeal.setSettings({ llmModel: model });
+    await refresh();
   };
 
-  const useLlm = async (name: string) => {
-    await window.oatmeal.setSettings({ llmModel: name });
+  const setLlmUrl = async (url: string) => {
+    await window.oatmeal.setSettings({ llmBaseUrl: url.trim() });
     await refresh();
+    await load();
   };
 
   return (
@@ -112,42 +109,75 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
         </Section>
 
-        <Section title="Intelligence (Ollama — summaries & chat)">
-          {status && !status.ollamaUp ? (
-            <div className="rounded-lg bg-surface-tint px-3 py-2.5 text-[13px] leading-relaxed">
-              Ollama isn't running. Oatmeal uses it for live summaries and chat.{" "}
-              <button
-                className="font-medium text-accent underline"
-                onClick={() => void window.oatmeal.openExternal("https://ollama.com/download")}
-              >
-                Download Ollama
-              </button>{" "}
-              (free), open it once, then come back here.
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {llms.map((m) => {
-                const dl = downloads[m.name];
-                return (
-                  <ModelRow
-                    key={m.name}
-                    title={m.name}
-                    subtitle={
-                      m.installed
-                        ? `${(m.sizeBytes / 1e9).toFixed(1)} GB${m.recommended ? " · " + m.recommended : ""}`
-                        : (m.recommended ?? "available to pull")
-                    }
-                    active={settings?.llmModel === m.name}
-                    installed={m.installed}
-                    progress={dl?.status === "downloading" ? dl.pct : null}
-                    busy={busy === m.name}
-                    onDownload={() => void pullLlm(m.name)}
-                    onUse={() => void useLlm(m.name)}
-                  />
-                );
-              })}
-            </div>
-          )}
+        <Section title="Intelligence (your local LLM — summaries & chat)">
+          <div className="flex flex-col gap-2">
+            <label className="rounded-lg border border-hairline px-3 py-2.5">
+              <div className="mb-1 text-[12px] font-medium text-ink-secondary">
+                Server URL (OpenAI-compatible)
+              </div>
+              <input
+                type="text"
+                key={`url-${settings?.llmBaseUrl ?? ""}`}
+                defaultValue={settings?.llmBaseUrl ?? ""}
+                placeholder="http://127.0.0.1:11434/v1"
+                spellCheck={false}
+                onBlur={(e) => void setLlmUrl(e.target.value)}
+                className="w-full bg-transparent text-[13px] outline-none placeholder:text-ink-tertiary"
+              />
+              <div className="mt-1 text-[12px] text-ink-tertiary">
+                Bring your own model on Ollama, LM Studio, Jan, llama.cpp, vLLM,
+                LocalAI…{" "}
+                <span className={status && !status.llmUp ? "text-danger" : "text-accent"}>
+                  {status && !status.llmUp ? "○ not reachable" : "● connected"}
+                </span>
+              </div>
+            </label>
+
+            {status && !status.llmUp ? (
+              <div className="rounded-lg bg-surface-tint px-3 py-2.5 text-[13px] leading-relaxed">
+                No model server is answering at that URL. Start your local LLM
+                app (and load a model), or{" "}
+                <button
+                  className="font-medium text-accent underline"
+                  onClick={() => void window.oatmeal.openExternal("https://ollama.com/download")}
+                >
+                  get Ollama
+                </button>{" "}
+                (free), then set the model below.
+              </div>
+            ) : (
+              <label className="rounded-lg border border-hairline px-3 py-2.5">
+                <div className="mb-1 text-[12px] font-medium text-ink-secondary">Model</div>
+                <input
+                  type="text"
+                  key={`model-${settings?.llmModel ?? ""}`}
+                  defaultValue={settings?.llmModel ?? ""}
+                  placeholder="e.g. qwen2.5:14b or llama-3.2-3b-instruct"
+                  spellCheck={false}
+                  onBlur={(e) => void useLlm(e.target.value)}
+                  className="w-full bg-transparent text-[13px] outline-none placeholder:text-ink-tertiary"
+                />
+                {llms.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {llms.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => void useLlm(m.id)}
+                        className={
+                          "rounded-full px-2.5 py-1 text-[12px] font-medium " +
+                          (settings?.llmModel === m.id
+                            ? "bg-surface-green text-accent"
+                            : "bg-fill-soft-opaque hover:bg-fill-soft-hover")
+                        }
+                      >
+                        {m.id}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </label>
+            )}
+          </div>
         </Section>
 
         <Section title="Meeting detection">
@@ -185,8 +215,8 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
 
         <p className="mt-4 text-[12px] leading-relaxed text-ink-tertiary">
           Everything — audio, transcripts, summaries, chats — stays on this Mac.
-          Oatmeal makes no network calls except to localhost (Ollama, whisper)
-          and to download models you ask for.
+          Oatmeal makes no network calls except to your local LLM server and
+          whisper, and to download models you ask for.
         </p>
       </div>
     </div>

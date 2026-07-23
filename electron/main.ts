@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import type { AppStatus, DetectionState, Segment, Settings } from "../shared/types";
 import * as db from "./db";
 import * as whisper from "./whisper";
-import * as ollama from "./ollama";
+import * as llm from "./ollama";
 import { Recorder } from "./recorder";
 import { generateSummary, generateTitle } from "./finalize";
 
@@ -39,6 +39,7 @@ function getSettings(): Settings {
   return {
     sttModel: db.getSetting("sttModel") ?? "small.en",
     llmModel: db.getSetting("llmModel") ?? "qwen2.5:14b",
+    llmBaseUrl: db.getSetting("llmBaseUrl") ?? llm.DEFAULT_LLM_BASE_URL,
     detectionEnabled: (db.getSetting("detectionEnabled") ?? "true") === "true",
   };
 }
@@ -47,10 +48,11 @@ async function getStatus(): Promise<AppStatus> {
   const s = getSettings();
   const perms = await checkPermissions();
   return {
-    ollamaUp: await ollama.ollamaUp(),
+    llmUp: await llm.llmUp(),
     whisperReady: whisper.whisperReady(),
     sttModel: whisper.currentSttModel() ?? s.sttModel,
     llmModel: s.llmModel,
+    llmBaseUrl: s.llmBaseUrl,
     permissions: perms,
   };
 }
@@ -184,7 +186,7 @@ async function stopRecording(reason: "manual" | "auto" = "manual"): Promise<void
     if (title && title !== existing?.title) db.renameMeeting(id, title);
   } catch (e) {
     console.error("finalize failed:", e);
-    send("recorder-error", `Couldn't write the summary — is Ollama running? (${String(e)})`);
+    send("recorder-error", `Couldn't write the summary — is your LLM server running? (${String(e)})`);
   }
   const m = db.getMeeting(id);
   send("finalized", { meetingId: id, title: m?.title ?? "", summaryMd: m?.summaryMd ?? "" });
@@ -218,6 +220,7 @@ function registerIpc() {
     if (patch.detectionEnabled !== undefined) {
       patch.detectionEnabled ? startDetection() : stopDetection();
     }
+    if (patch.llmBaseUrl !== undefined) llm.setLlmBaseUrl(s.llmBaseUrl);
     return s;
   });
 
@@ -264,10 +267,7 @@ function registerIpc() {
     await whisper.startWhisper(id);
   });
 
-  ipcMain.handle("ollama:list", () => ollama.listOllamaModels());
-  ipcMain.handle("ollama:pull", async (_e, name: string) => {
-    await ollama.pullOllamaModel(name, (p) => send("download-progress", p));
-  });
+  ipcMain.handle("llm:list", () => llm.listLlmModels());
 
   ipcMain.handle("chat:send", async (_e, meetingId: string, content: string) => {
     const s = getSettings();
@@ -287,7 +287,7 @@ ${transcript || "(no transcript yet)"}`;
       { role: "system" as const, content: system },
       ...history.map((m) => ({ role: m.role, content: m.content })),
     ];
-    const full = await ollama.chatStream(s.llmModel, messages, (t) =>
+    const full = await llm.chatStream(s.llmModel, messages, (t) =>
       send("chat-token", meetingId, t)
     );
     db.addChatMessage(meetingId, "assistant", full);
@@ -347,6 +347,7 @@ function createTray() {
 
 app.whenReady().then(async () => {
   db.initDb();
+  llm.setLlmBaseUrl(getSettings().llmBaseUrl);
   registerIpc();
   createWindow();
   createTray();
