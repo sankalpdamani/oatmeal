@@ -88,11 +88,13 @@ npm run dist    # -> release/Oatmeal-<version>-arm64.dmg
 
 ### Models
 
-- **Whisper (speech-to-text):** the `small.en` model is **bundled with the
-  downloadable app**, so transcription works out of the box. Other sizes
-  (`base.en`, `large-v3-turbo`) are downloadable in **Settings**. (Building from
-  source? CI bundles the model into the DMG; a local `npm run dist` ships
-  without it and you download one in Settings.)
+- **Whisper (speech-to-text):** `base.en` and `small.en` are both **bundled
+  with the downloadable app**, and Oatmeal auto-selects one based on your Mac's
+  memory (the lighter `base.en` on ~8 GB machines so transcription keeps up,
+  `small.en` on larger ones). `large-v3-turbo` is downloadable in **Settings**,
+  where you can also override the choice. (Building from source? CI bundles the
+  models into the DMG; a local `npm run dist` ships without them and you
+  download one in Settings.)
 - **Ollama (summaries & chat):** install [Ollama](https://ollama.com/download),
   start it, and pull a model, e.g. `ollama pull qwen2.5:14b`. The app detects
   whether Ollama is up and links you to the download if it isn't.

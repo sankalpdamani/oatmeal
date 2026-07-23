@@ -10,6 +10,7 @@ import {
 } from "electron";
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AppStatus, DetectionState, Segment, Settings } from "../shared/types";
@@ -35,9 +36,18 @@ function send(channel: string, ...args: unknown[]) {
   win?.webContents.send(channel, ...args);
 }
 
+// Size the default Whisper model to the machine so transcription keeps up in
+// real time: the lighter/faster base.en on low-memory Macs, small.en otherwise.
+// Both are bundled, so either choice works offline. Only applies until the user
+// explicitly picks a model in Settings (which persists sttModel).
+function defaultSttModel(): string {
+  const totalGib = os.totalmem() / 1024 ** 3;
+  return totalGib <= 8.5 ? "base.en" : "small.en";
+}
+
 function getSettings(): Settings {
   return {
-    sttModel: db.getSetting("sttModel") ?? "small.en",
+    sttModel: db.getSetting("sttModel") ?? defaultSttModel(),
     llmModel: db.getSetting("llmModel") ?? "qwen2.5:14b",
     llmBaseUrl: db.getSetting("llmBaseUrl") ?? llm.DEFAULT_LLM_BASE_URL,
     detectionEnabled: (db.getSetting("detectionEnabled") ?? "true") === "true",
