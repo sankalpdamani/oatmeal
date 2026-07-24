@@ -154,11 +154,15 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                   type="text"
                   key={`model-${settings?.llmModel ?? ""}`}
                   defaultValue={settings?.llmModel ?? ""}
-                  placeholder="e.g. qwen2.5:14b or llama-3.2-3b-instruct"
+                  placeholder="pick one below or type a model name"
                   spellCheck={false}
                   onBlur={(e) => void useLlm(e.target.value)}
                   className="w-full bg-transparent text-[13px] outline-none placeholder:text-ink-tertiary"
                 />
+                <div className="mt-1 text-[12px] text-ink-tertiary">
+                  Bring any model you like. If you don't choose one, Oatmeal uses
+                  the lightest model you already have installed.
+                </div>
                 {llms.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {llms.map((m) => (

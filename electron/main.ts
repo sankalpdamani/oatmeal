@@ -56,7 +56,9 @@ function defaultSttModel(): string {
 function getSettings(): Settings {
   return {
     sttModel: db.getSetting("sttModel") ?? defaultSttModel(),
-    llmModel: db.getSetting("llmModel") ?? "qwen2.5:14b",
+    // Empty until the user picks one or we adopt an installed model — we never
+    // force a specific (heavy) model on the user's machine. See resolveLlmModel.
+    llmModel: db.getSetting("llmModel") ?? "",
     llmBaseUrl: db.getSetting("llmBaseUrl") ?? llm.DEFAULT_LLM_BASE_URL,
     embedModel: db.getSetting("embedModel") ?? "nomic-embed-text",
     detectionEnabled: (db.getSetting("detectionEnabled") ?? "true") === "true",
@@ -83,6 +85,32 @@ async function ensureEmbedModel(): Promise<void> {
   }
 }
 
+// Roughly how big a model is, from a "…7b"/"…14b" hint in its name (used to
+// prefer lighter models on unknown machines). No hint → treated as large.
+function paramSize(id: string): number {
+  const m = id.toLowerCase().match(/(\d+(?:\.\d+)?)\s*b\b/);
+  return m ? parseFloat(m[1]) : 999;
+}
+
+// The model to use for chat/summaries. Respects an explicit choice; otherwise
+// adopts the lightest model the user already has installed (and remembers it),
+// so we never impose a model their machine can't run. Empty if none available.
+async function resolveLlmModel(): Promise<string> {
+  const chosen = db.getSetting("llmModel");
+  if (chosen) return chosen;
+  try {
+    const ids = (await llm.listLlmModels()).map((m) => m.id).filter((id) => !/embed/i.test(id));
+    if (ids.length > 0) {
+      const pick = [...ids].sort((a, b) => paramSize(a) - paramSize(b))[0];
+      db.setSetting("llmModel", pick); // adopt as this machine's default
+      return pick;
+    }
+  } catch {
+    /* server unreachable / no models yet */
+  }
+  return "";
+}
+
 async function getStatus(): Promise<AppStatus> {
   const s = getSettings();
   const up = await llm.llmUp();
@@ -90,11 +118,12 @@ async function getStatus(): Promise<AppStatus> {
     embedModelEnsured = true;
     void ensureEmbedModel();
   }
+  const model = up ? await resolveLlmModel() : s.llmModel;
   return {
     llmUp: up,
     whisperReady: whisper.whisperReady(),
     sttModel: whisper.currentSttModel() ?? s.sttModel,
-    llmModel: s.llmModel,
+    llmModel: model || null,
     llmBaseUrl: s.llmBaseUrl,
     permissions: {
       // Mic has a clean, non-prompting status API. System Audio (Core Audio
@@ -290,7 +319,13 @@ async function stopRecording(reason: "manual" | "auto" = "manual"): Promise<void
   // Finalize: summary + title from the full transcript.
   send("finalizing", { meetingId: id });
   const segments: Segment[] = db.listSegments(id);
-  const model = getSettings().llmModel;
+  const model = await resolveLlmModel();
+  if (!model) {
+    // No local model available — skip the AI note rather than erroring.
+    const m0 = db.getMeeting(id);
+    send("finalized", { meetingId: id, title: m0?.title ?? "", summaryMd: m0?.summaryMd ?? "" });
+    return;
+  }
   try {
     const existing = db.getMeeting(id);
     const wasAutoTitled = !existing?.title || /meeting$|^New meeting$/i.test(existing.title);
@@ -394,6 +429,14 @@ function registerIpc() {
   ipcMain.handle("chat:send", async (_e, meetingId: string, content: string) => {
     const s = getSettings();
     db.addChatMessage(meetingId, "user", content);
+    const model = await resolveLlmModel();
+    if (!model) {
+      const full =
+        "No local model is set up yet. Open your AI app (e.g. Ollama) and pick a model in Settings, then ask again.";
+      db.addChatMessage(meetingId, "assistant", full);
+      send("chat-done", meetingId, full);
+      return full;
+    }
     const meeting = db.getMeeting(meetingId);
     // Retrieve only the relevant transcript excerpts for this question, plus the
     // summary (a compact whole-meeting view). Keeps the prompt small and fast.
@@ -414,7 +457,7 @@ ${transcript || "(no transcript yet)"}`;
     let full = "";
     try {
       full = (
-        await llm.chatStream(s.llmModel, messages, (t) => send("chat-token", meetingId, t))
+        await llm.chatStream(model, messages, (t) => send("chat-token", meetingId, t))
       ).trim();
     } catch (e) {
       // ollama.ts throws customer-friendly messages; show one as the reply.

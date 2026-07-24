@@ -104,9 +104,12 @@ npm run dist    # -> release/Oatmeal-<version>-arm64.dmg
   where you can also override the choice. (Building from source? CI bundles the
   models into the DMG; a local `npm run dist` ships without them and you
   download one in Settings.)
-- **Ollama (summaries & chat):** install [Ollama](https://ollama.com/download),
-  start it, and pull a model, e.g. `ollama pull qwen2.5:14b`. The app detects
-  whether Ollama is up and links you to the download if it isn't.
+- **LLM (summaries & chat):** bring your own — Oatmeal talks to any local
+  OpenAI-compatible server ([Ollama](https://ollama.com/download), LM Studio,
+  Jan, …). Pull whatever model fits your machine (e.g. `ollama pull qwen2.5:7b`);
+  if you don't pick one, Oatmeal uses the lightest model you already have. On
+  Ollama it also auto-pulls the `nomic-embed-text` embedding model for
+  meaning-based chat search on long meetings.
 
 First run: grant **Microphone** and **System Audio** permissions — the guided
 setup screen walks you through both (no Screen Recording needed; system audio
