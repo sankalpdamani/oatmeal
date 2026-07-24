@@ -11,6 +11,13 @@ import * as llm from "./ollama";
 const CHUNK_CHARS = 1000; // ~250 tokens per chunk
 const DEFAULT_MAX_CHARS = 5000; // budget of excerpts sent to the model
 
+// Once we learn the embedding model/server isn't available, stop hammering it
+// (fast keyword-only search) until settings change or a new recording starts.
+let embedDisabled = false;
+export function resetEmbedAvailability(): void {
+  embedDisabled = false;
+}
+
 const STOPWORDS = new Set(
   "the a an and or of to in on for is are was were be been do does did what who how why when where which that this it its as at by with from about into over your you our their they them we can will would could should".split(
     " "
@@ -90,6 +97,27 @@ async function ensureEmbeddings(
   return have;
 }
 
+// Embed chunks ahead of time so chat is instant instead of embedding on the
+// first question. Skips the last (still-growing) chunk during a live meeting;
+// pass includeLast at the end (or when opening a finished meeting) to embed all.
+export async function prewarmEmbeddings(
+  meetingId: string,
+  embedModel: string,
+  includeLast = false
+): Promise<void> {
+  if (embedDisabled) return;
+  const segs = db.listSegments(meetingId);
+  if (segs.length === 0) return;
+  let chunks = chunkSegments(segs);
+  if (!includeLast && chunks.length > 1) chunks = chunks.slice(0, -1);
+  try {
+    await ensureEmbeddings(meetingId, chunks, embedModel);
+  } catch (e) {
+    embedDisabled = true;
+    console.error("embedding unavailable, using keyword search:", (e as Error).message);
+  }
+}
+
 function recentTail(chunks: Chunk[], maxChars: number): string {
   const all = chunks.map((c) => c.text).join("\n");
   return all.length > maxChars ? "…\n" + all.slice(-maxChars) : all;
@@ -140,17 +168,20 @@ export async function retrieveContext(
 
   // Semantic ranking (best-effort; falls back to lexical on any failure).
   let semRank: Map<string, number> | null = null;
-  try {
-    const vecs = await ensureEmbeddings(meetingId, chunks, embedModel);
-    const [qvec] = await llm.embed(embedModel, [query]);
-    if (qvec) {
-      const sims = chunks
-        .map((c) => ({ key: c.key, sim: vecs.has(c.key) ? cosine(qvec, vecs.get(c.key)!) : -1 }))
-        .sort((a, b) => b.sim - a.sim);
-      semRank = new Map(sims.map((x, r) => [x.key, r]));
+  if (!embedDisabled) {
+    try {
+      const vecs = await ensureEmbeddings(meetingId, chunks, embedModel);
+      const [qvec] = await llm.embed(embedModel, [query]);
+      if (qvec) {
+        const sims = chunks
+          .map((c) => ({ key: c.key, sim: vecs.has(c.key) ? cosine(qvec, vecs.get(c.key)!) : -1 }))
+          .sort((a, b) => b.sim - a.sim);
+        semRank = new Map(sims.map((x, r) => [x.key, r]));
+      }
+    } catch (e) {
+      embedDisabled = true;
+      console.error("semantic retrieval unavailable, using keyword search:", (e as Error).message);
     }
-  } catch (e) {
-    console.error("semantic retrieval unavailable, using keyword search:", (e as Error).message);
   }
 
   // Nothing to go on (no keyword hits, no embeddings) → most recent tail.

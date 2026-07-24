@@ -32,6 +32,9 @@ let activeMeetingId: string | null = null;
 let startedByApp: string | null = null; // meeting app that triggered the recording
 let endGraceTimer: ReturnType<typeof setTimeout> | null = null;
 const AUTO_END_GRACE_MS = 30000;
+// Embed transcript chunks in the background during a meeting so chat is instant.
+let embedTimer: ReturnType<typeof setInterval> | null = null;
+const EMBED_INTERVAL_MS = 45000;
 
 function send(channel: string, ...args: unknown[]) {
   win?.webContents.send(channel, ...args);
@@ -189,8 +192,22 @@ async function startRecording(title: string, appName?: string | null): Promise<s
     (code) => void abortRecording(code)
   );
   recorder.start();
+
+  // Embed transcript chunks as the meeting runs so chat is instant afterward.
+  retrieval.resetEmbedAvailability();
+  embedTimer = setInterval(() => {
+    void retrieval.prewarmEmbeddings(id, getSettings().embedModel);
+  }, EMBED_INTERVAL_MS);
+
   send("recording-state", { meetingId: id, recording: true });
   return id;
+}
+
+function stopEmbedTimer() {
+  if (embedTimer) {
+    clearInterval(embedTimer);
+    embedTimer = null;
+  }
 }
 
 // The audio helper died before/while capturing (permissions, format, …).
@@ -198,6 +215,7 @@ async function startRecording(title: string, appName?: string | null): Promise<s
 async function abortRecording(code: number | null): Promise<void> {
   const id = activeMeetingId;
   cancelAutoEnd();
+  stopEmbedTimer();
   await recorder?.stop().catch(() => {});
   recorder = null;
   activeMeetingId = null;
@@ -231,6 +249,7 @@ async function stopRecording(reason: "manual" | "auto" = "manual"): Promise<void
   if (!activeMeetingId) return;
   const id = activeMeetingId;
   cancelAutoEnd();
+  stopEmbedTimer();
   await recorder?.stop();
   recorder = null;
   db.endMeeting(id);
@@ -238,6 +257,10 @@ async function stopRecording(reason: "manual" | "auto" = "manual"): Promise<void
   startedByApp = null;
   notifiedForCurrentMeeting = false;
   send("recording-state", { meetingId: id, recording: false, reason });
+
+  // Embed the whole transcript (including the final partial chunk) so chat is
+  // ready the moment the meeting opens. Best-effort; doesn't block finalize.
+  void retrieval.prewarmEmbeddings(id, getSettings().embedModel, true);
 
   // Finalize: summary + title from the full transcript.
   send("finalizing", { meetingId: id });
@@ -282,16 +305,24 @@ function registerIpc() {
     if (patch.detectionEnabled !== undefined) {
       patch.detectionEnabled ? startDetection() : stopDetection();
     }
-    if (patch.llmBaseUrl !== undefined) llm.setLlmBaseUrl(s.llmBaseUrl);
+    if (patch.llmBaseUrl !== undefined) {
+      llm.setLlmBaseUrl(s.llmBaseUrl);
+      retrieval.resetEmbedAvailability();
+    }
+    if (patch.embedModel !== undefined) retrieval.resetEmbedAvailability();
     return s;
   });
 
   ipcMain.handle("meetings:list", () => db.listMeetings());
-  ipcMain.handle("meetings:get", (_e, id: string) => ({
-    meeting: db.getMeeting(id),
-    segments: db.listSegments(id),
-    chat: db.listChatMessages(id),
-  }));
+  ipcMain.handle("meetings:get", (_e, id: string) => {
+    // Warm embeddings when a meeting is opened so its first chat is instant.
+    void retrieval.prewarmEmbeddings(id, getSettings().embedModel, true);
+    return {
+      meeting: db.getMeeting(id),
+      segments: db.listSegments(id),
+      chat: db.listChatMessages(id),
+    };
+  });
   ipcMain.handle("meetings:rename", (_e, id: string, title: string) =>
     db.renameMeeting(id, title)
   );
