@@ -18,7 +18,7 @@ import * as db from "./db";
 import * as whisper from "./whisper";
 import * as llm from "./ollama";
 import { Recorder } from "./recorder";
-import { generateSummary, generateTitle } from "./finalize";
+import { generateSummary, generateTitle, stripEmojis } from "./finalize";
 import * as retrieval from "./retrieval";
 
 let win: BrowserWindow | null = null;
@@ -67,6 +67,8 @@ function getSettings(): Settings {
 
 // Auto-pull the embedding model once the LLM server is reachable (Ollama only).
 let embedModelEnsured = false;
+// Resolved embedding model actually used for retrieval — works on ANY server.
+let resolvedEmbedModel: string | null = null;
 async function ensureEmbedModel(): Promise<void> {
   const model = getSettings().embedModel;
   if (!model) return;
@@ -79,10 +81,34 @@ async function ensureEmbedModel(): Promise<void> {
     console.log(`auto-pulling embedding model "${model}"…`);
     await llm.pullModel(model);
     retrieval.resetEmbedAvailability();
+    resolvedEmbedModel = null; // re-detect now that it's installed
     console.log(`embedding model "${model}" ready`);
   } catch (e) {
     console.error("auto-pull of embedding model skipped:", (e as Error).message);
   }
+}
+
+// The embedding model to actually use. Prefers the configured name if the
+// server has it; otherwise auto-detects any embedding model the server exposes
+// (works on Ollama, LM Studio, Jan, … — not just Ollama). Cached until settings
+// change. Empty string means "use configured as-is" (retrieval will fall back
+// to keyword search if it isn't available).
+async function resolveEmbedModel(): Promise<string> {
+  if (resolvedEmbedModel !== null) return resolvedEmbedModel;
+  const configured = getSettings().embedModel;
+  try {
+    const ids = (await llm.listLlmModels()).map((m) => m.id);
+    if (configured && ids.includes(configured)) resolvedEmbedModel = configured;
+    else resolvedEmbedModel = ids.find((id) => /embed/i.test(id)) ?? configured ?? "";
+  } catch {
+    resolvedEmbedModel = configured ?? "";
+  }
+  return resolvedEmbedModel;
+}
+
+// Warm embeddings for a meeting using the resolved (server-appropriate) model.
+function prewarm(meetingId: string, includeLast = false) {
+  void resolveEmbedModel().then((em) => retrieval.prewarmEmbeddings(meetingId, em, includeLast));
 }
 
 // Roughly how big a model is, from a "…7b"/"…14b" hint in its name (used to
@@ -249,9 +275,7 @@ async function startRecording(title: string, appName?: string | null): Promise<s
 
   // Embed transcript chunks as the meeting runs so chat is instant afterward.
   retrieval.resetEmbedAvailability();
-  embedTimer = setInterval(() => {
-    void retrieval.prewarmEmbeddings(id, getSettings().embedModel);
-  }, EMBED_INTERVAL_MS);
+  embedTimer = setInterval(() => prewarm(id), EMBED_INTERVAL_MS);
 
   send("recording-state", { meetingId: id, recording: true });
   return id;
@@ -314,7 +338,7 @@ async function stopRecording(reason: "manual" | "auto" = "manual"): Promise<void
 
   // Embed the whole transcript (including the final partial chunk) so chat is
   // ready the moment the meeting opens. Best-effort; doesn't block finalize.
-  void retrieval.prewarmEmbeddings(id, getSettings().embedModel, true);
+  prewarm(id, true);
 
   // Finalize: summary + title from the full transcript.
   send("finalizing", { meetingId: id });
@@ -369,10 +393,12 @@ function registerIpc() {
       llm.setLlmBaseUrl(s.llmBaseUrl);
       retrieval.resetEmbedAvailability();
       embedModelEnsured = false;
+      resolvedEmbedModel = null;
     }
     if (patch.embedModel !== undefined) {
       retrieval.resetEmbedAvailability();
       embedModelEnsured = false;
+      resolvedEmbedModel = null;
     }
     return s;
   });
@@ -380,7 +406,7 @@ function registerIpc() {
   ipcMain.handle("meetings:list", () => db.listMeetings());
   ipcMain.handle("meetings:get", (_e, id: string) => {
     // Warm embeddings when a meeting is opened so its first chat is instant.
-    void retrieval.prewarmEmbeddings(id, getSettings().embedModel, true);
+    prewarm(id, true);
     return {
       meeting: db.getMeeting(id),
       segments: db.listSegments(id),
@@ -440,9 +466,9 @@ function registerIpc() {
     const meeting = db.getMeeting(meetingId);
     // Retrieve only the relevant transcript excerpts for this question, plus the
     // summary (a compact whole-meeting view). Keeps the prompt small and fast.
-    const transcript = await retrieval.retrieveContext(meetingId, content, s.embedModel);
+    const transcript = await retrieval.retrieveContext(meetingId, content, await resolveEmbedModel());
     const history = db.listChatMessages(meetingId).slice(-8);
-    const system = `You answer questions about a meeting using its summary and the relevant transcript excerpts below. In the transcript, "Me" is the person you're talking to — address them as "you". "Them" is the other participant(s) on the call — refer to them naturally as "the other participant", "someone on the call", or "the other side", and never write the literal word "Them". Quote wording from the excerpts when helpful. If the answer isn't in the excerpts, say so plainly. Keep answers concise and skimmable.
+    const system = `You answer questions about a meeting using its summary and the relevant transcript excerpts below. In the transcript, "Me" is the person you're talking to — address them as "you". "Them" is the other participant(s) on the call — refer to them naturally as "the other participant", "someone on the call", or "the other side", and never write the literal word "Them". Quote wording from the excerpts when helpful. If the answer isn't in the excerpts, say so plainly. Keep answers short and skimmable. Do not use emojis or decorative symbols.
 
 MEETING: ${meeting?.title ?? ""}
 SUMMARY:
@@ -456,9 +482,10 @@ ${transcript || "(no transcript yet)"}`;
     ];
     let full = "";
     try {
-      full = (
-        await llm.chatStream(model, messages, (t) => send("chat-token", meetingId, t))
-      ).trim();
+      // Cap output length so answers come back fast and stay skimmable.
+      full = stripEmojis(
+        (await llm.chatStream(model, messages, (t) => send("chat-token", meetingId, t), 512)).trim()
+      );
     } catch (e) {
       // ollama.ts throws customer-friendly messages; show one as the reply.
       full = (e as Error)?.message || "Something went wrong. Please try again.";

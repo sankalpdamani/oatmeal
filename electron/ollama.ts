@@ -139,14 +139,15 @@ export async function chatOnce(model: string, messages: ChatTurn[]): Promise<str
 export async function chatStream(
   model: string,
   messages: ChatTurn[],
-  onToken: (t: string) => void
+  onToken: (t: string) => void,
+  maxTokens?: number
 ): Promise<string> {
   let res: Response;
   try {
     res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, messages, stream: true }),
+      body: JSON.stringify({ model, messages, stream: true, max_tokens: maxTokens }),
     });
   } catch {
     throw new Error(UNREACHABLE_MSG);

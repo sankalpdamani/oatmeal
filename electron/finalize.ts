@@ -4,6 +4,16 @@
 import type { Segment } from "../shared/types";
 import { chatOnce } from "./ollama";
 
+// Strip emojis / decorative pictographs (and any space they leave) from model
+// output — notes and answers should be plain, copy-pasteable text.
+const EMOJI_RE = /[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}️‍]\s?/gu;
+export function stripEmojis(text: string): string {
+  return text
+    .replace(EMOJI_RE, "")
+    .replace(/ {2,}/g, " ")
+    .replace(/[ \t]+$/gm, "");
+}
+
 const SUMMARY_SYSTEM = `You are an expert meeting notetaker. You are given the full transcript of a meeting that just ended. "Me" is the app user; "Them" is everyone else on the call.
 
 Write clean, skimmable notes as if a sharp chief-of-staff wrote them. Use this exact markdown structure, omitting any section that has no content:
@@ -23,9 +33,9 @@ One or two sentences capturing what the meeting was about and its outcome.
 ## Open questions
 - anything left unresolved
 
-Rules: only use facts stated in the transcript; never invent names, numbers, or commitments; attribute action items to whoever took them when clear; output ONLY the markdown note, no preamble or sign-off.`;
+Rules: only use facts stated in the transcript; never invent names, numbers, or commitments; attribute action items to whoever took them when clear; do not use emojis or decorative symbols; output ONLY the markdown note, no preamble or sign-off.`;
 
-const TITLE_SYSTEM = `You write short titles for meetings. Given a transcript, output a concise, specific 3–6 word title (Title Case) that names the topic — like "Q3 Roadmap Planning" or "Mercor Role Discussion". No quotes, no punctuation at the end, no preamble. Output only the title.`;
+const TITLE_SYSTEM = `You write short titles for meetings. Given a transcript, output a concise, specific 3–6 word title (Title Case) that names the topic — like "Q3 Roadmap Planning" or "Mercor Role Discussion". No quotes, no emojis, no punctuation at the end, no preamble. Output only the title.`;
 
 function transcriptText(segments: Segment[], maxChars = 24000): string {
   const lines = segments.map((s) => `${s.speaker === "me" ? "Me" : "Them"}: ${s.text}`);
@@ -45,7 +55,7 @@ export async function generateSummary(model: string, segments: Segment[]): Promi
     { role: "system", content: SUMMARY_SYSTEM },
     { role: "user", content: `TRANSCRIPT:\n${transcriptText(segments)}` },
   ]);
-  return md.trim();
+  return stripEmojis(md.trim());
 }
 
 export async function generateTitle(model: string, segments: Segment[]): Promise<string> {
@@ -60,5 +70,5 @@ export async function generateTitle(model: string, segments: Segment[]): Promise
     .replace(/^["'`]|["'`.]$/g, "")
     .split("\n")[0]
     .slice(0, 80);
-  return title || "Untitled meeting";
+  return stripEmojis(title).trim() || "Untitled meeting";
 }

@@ -92,6 +92,9 @@ export default function MeetingView({ meetingId }: { meetingId: string }) {
             <LiveState count={segments.length} />
           ) : summaryMd ? (
             <div className="text-[14.5px] leading-relaxed">
+              <div className="mb-1 flex justify-end">
+                <CopyButton text={summaryMd} always />
+              </div>
               <Markdown text={summaryMd} />
             </div>
           ) : (
@@ -308,7 +311,7 @@ function ChatPanel({ meetingId, onClose }: { meetingId: string; onClose: () => v
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
             <div className="flex flex-col gap-3">
               {chat.map((m) => (
-                <ChatBubble key={m.id} role={m.role} content={m.content} />
+                <ChatBubble key={m.id} role={m.role} content={m.content} canCopy />
               ))}
               {streaming !== null && <ChatBubble role="assistant" content={streaming || "…"} />}
             </div>
@@ -360,14 +363,47 @@ function ChatPanel({ meetingId, onClose }: { meetingId: string; onClose: () => v
   );
 }
 
-function ChatBubble({ role, content }: { role: "user" | "assistant"; content: string }) {
-  return role === "user" ? (
-    <div className="ml-10 self-end rounded-xl rounded-br-sm bg-accent-soft px-3 py-2 text-[13.5px] leading-relaxed">
-      {content}
+function ChatBubble({
+  role,
+  content,
+  canCopy,
+}: {
+  role: "user" | "assistant";
+  content: string;
+  canCopy?: boolean;
+}) {
+  if (role === "user") {
+    return (
+      <div className="ml-10 self-end rounded-xl rounded-br-sm bg-accent-soft px-3 py-2 text-[13.5px] leading-relaxed">
+        {content}
+      </div>
+    );
+  }
+  return (
+    <div className="group mr-6 flex max-w-[85%] flex-col self-start">
+      <div className="rounded-xl rounded-bl-sm bg-surface-sunken px-3 py-2 text-[13.5px] leading-relaxed">
+        <Markdown text={content} />
+      </div>
+      {canCopy && content !== "…" && <CopyButton text={content} />}
     </div>
-  ) : (
-    <div className="mr-6 self-start rounded-xl rounded-bl-sm bg-surface-sunken px-3 py-2 text-[13.5px] leading-relaxed">
-      <Markdown text={content} />
-    </div>
+  );
+}
+
+function CopyButton({ text, always }: { text: string; always?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={() => {
+        void navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
+      className={
+        "self-start rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink-tertiary transition hover:text-ink-secondary " +
+        (always ? "opacity-100" : "mt-1 opacity-0 group-hover:opacity-100")
+      }
+    >
+      {copied ? "Copied" : "Copy"}
+    </button>
   );
 }
