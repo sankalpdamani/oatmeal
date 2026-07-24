@@ -248,6 +248,10 @@ interface IntegrationRow {
   label: string;
   installed: boolean;
   connected: boolean;
+  stale: boolean;
+  detail: string | null;
+  cliCommand: string | null;
+  openable: boolean;
   configPath: string;
 }
 
@@ -255,23 +259,32 @@ function IntegrationsPanel() {
   const [rows, setRows] = useState<IntegrationRow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [justConnected, setJustConnected] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
 
   useEffect(() => {
     void window.oatmeal.integrationStatus().then(setRows);
   }, []);
 
-  const connect = async (id: string) => {
+  const connect = async (id: string, openAfter: boolean) => {
     setBusy(id);
     try {
       setRows(await window.oatmeal.connectIntegration(id));
       setJustConnected(id);
-      setTimeout(() => setJustConnected((j) => (j === id ? null : j)), 4000);
+      setTimeout(() => setJustConnected((j) => (j === id ? null : j)), 6000);
+      // Land the user in the tool they just connected (GUI tools only).
+      if (openAfter) await window.oatmeal.openIntegration(id);
     } catch (e) {
       console.error(e);
       alert("Couldn't write that tool's config. Please try again.");
     } finally {
       setBusy(null);
     }
+  };
+
+  const copy = async (id: string, cmd: string) => {
+    await navigator.clipboard.writeText(cmd);
+    setCopied(id);
+    setTimeout(() => setCopied((c) => (c === id ? null : c)), 2500);
   };
 
   const visible = rows.filter((r) => r.installed);
@@ -291,26 +304,62 @@ function IntegrationsPanel() {
         </div>
       )}
       {visible.map((r) => (
-        <div
-          key={r.id}
-          className="flex items-center justify-between rounded-lg border border-hairline px-3 py-2.5"
-        >
-          <div className="min-w-0">
-            <div className="text-[13px] font-medium">{r.label}</div>
-            <div className="truncate text-[11.5px] text-ink-tertiary">{r.configPath}</div>
+        <div key={r.id} className="rounded-lg border border-hairline px-3 py-2.5">
+          <div className="flex items-center justify-between">
+            <div className="min-w-0">
+              <div className="text-[13px] font-medium">{r.label}</div>
+              <div className="truncate text-[11.5px] text-ink-tertiary">
+                {r.connected && r.detail ? r.detail : r.configPath}
+              </div>
+            </div>
+            <div className="ml-3 flex shrink-0 items-center gap-1.5">
+              {r.connected && !r.stale && (
+                <span className="rounded-full bg-surface-green px-2.5 py-1 text-[12px] font-medium text-accent">
+                  {justConnected === r.id ? "Connected — restart it to load" : "Connected"}
+                </span>
+              )}
+              {r.connected && r.stale && (
+                <button
+                  disabled={busy === r.id}
+                  onClick={() => void connect(r.id, false)}
+                  className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-ink-inverse hover:bg-accent-hover disabled:opacity-50"
+                  title="The configured server path no longer exists — reconnect to fix it"
+                >
+                  {busy === r.id ? "Fixing…" : "Reconnect"}
+                </button>
+              )}
+              {!r.connected && (
+                <button
+                  disabled={busy === r.id}
+                  onClick={() => void connect(r.id, r.openable)}
+                  className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-ink-inverse hover:bg-accent-hover disabled:opacity-50"
+                >
+                  {busy === r.id ? "Connecting…" : "Connect"}
+                </button>
+              )}
+              {r.openable && r.connected && (
+                <button
+                  onClick={() => void window.oatmeal.openIntegration(r.id)}
+                  className="rounded-md bg-fill-soft-opaque px-2.5 py-1 text-[12px] font-medium hover:bg-fill-soft-hover"
+                >
+                  Open
+                </button>
+              )}
+            </div>
           </div>
-          {r.connected ? (
-            <span className="ml-3 shrink-0 rounded-full bg-surface-green px-2.5 py-1 text-[12px] font-medium text-accent">
-              {justConnected === r.id ? "Connected — restart the tool" : "Connected"}
-            </span>
-          ) : (
-            <button
-              disabled={busy === r.id}
-              onClick={() => void connect(r.id)}
-              className="ml-3 shrink-0 rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-ink-inverse hover:bg-accent-hover disabled:opacity-50"
-            >
-              {busy === r.id ? "Connecting…" : "Connect"}
-            </button>
+          {r.cliCommand && (
+            <div className="mt-2 flex items-center gap-1.5">
+              <code className="min-w-0 flex-1 truncate rounded-md bg-fill-soft px-2 py-1.5 font-mono text-[11px] text-ink-secondary-strong">
+                {r.cliCommand}
+              </code>
+              <button
+                onClick={() => void copy(r.id, r.cliCommand!)}
+                className="shrink-0 rounded-md bg-fill-soft-opaque px-2 py-1.5 text-[11.5px] font-medium hover:bg-fill-soft-hover"
+                title="Copy, paste in your terminal, hit enter"
+              >
+                {copied === r.id ? "Copied ✓" : "Copy"}
+              </button>
+            </div>
           )}
         </div>
       ))}

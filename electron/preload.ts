@@ -11,6 +11,18 @@ import type {
   SttModel,
 } from "../shared/types";
 
+export interface IntegrationStatusRow {
+  id: string;
+  label: string;
+  installed: boolean;
+  connected: boolean;
+  stale: boolean;
+  detail: string | null;
+  cliCommand: string | null;
+  openable: boolean;
+  configPath: string;
+}
+
 function on<T extends unknown[]>(channel: string, cb: (...args: T) => void) {
   const listener = (_e: Electron.IpcRendererEvent, ...args: unknown[]) =>
     cb(...(args as T));
@@ -68,14 +80,11 @@ const api = {
     ipcRenderer.invoke("permissions:request-systemaudio"),
   relaunch: (): Promise<void> => ipcRenderer.invoke("app:relaunch"),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("open-external", url),
-  integrationStatus: (): Promise<
-    { id: string; label: string; installed: boolean; connected: boolean; configPath: string }[]
-  > => ipcRenderer.invoke("integrations:status"),
-  connectIntegration: (
-    id: string
-  ): Promise<
-    { id: string; label: string; installed: boolean; connected: boolean; configPath: string }[]
-  > => ipcRenderer.invoke("integrations:connect", id),
+  integrationStatus: (): Promise<IntegrationStatusRow[]> =>
+    ipcRenderer.invoke("integrations:status"),
+  connectIntegration: (id: string): Promise<IntegrationStatusRow[]> =>
+    ipcRenderer.invoke("integrations:connect", id),
+  openIntegration: (id: string): Promise<void> => ipcRenderer.invoke("integrations:open", id),
   checkForUpdate: (): Promise<{
     currentVersion: string;
     latestVersion: string | null;

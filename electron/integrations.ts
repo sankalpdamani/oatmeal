@@ -6,7 +6,8 @@
 // Oatmeal's own binary with ELECTRON_RUN_AS_NODE — no Node.js install needed.
 // Transcripts never leave the machine: the tool spawns the server locally over
 // stdio and reads the local SQLite database.
-import { app } from "electron";
+import { app, shell } from "electron";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -24,6 +25,10 @@ export interface IntegrationStatus {
   label: string;
   installed: boolean; // the tool itself appears to be present
   connected: boolean; // an "oatmeal" MCP entry exists in its config
+  stale: boolean; // entry exists but points at a script that is gone
+  detail: string | null; // human-readable summary of the configured entry
+  cliCommand: string | null; // paste-ready terminal command, for CLI tools
+  openable: boolean; // GUI tool Oatmeal can launch after connecting
   configPath: string;
 }
 
@@ -129,6 +134,79 @@ function connectCopilotCli(launch: McpLaunch) {
   writeJson(paths.copilotCliConfig, cfg);
 }
 
+// --- entry inspection, CLI commands, launching ---
+
+const sh = (s: string) => (/[^\w@%+=:,./-]/.test(s) ? `'${s.replace(/'/g, `'\\''`)}'` : s);
+
+// Summarize a configured entry ({command, args}) and whether its script is gone.
+function inspectEntry(entry: { command?: string; args?: string[] } | null | undefined): {
+  detail: string | null;
+  stale: boolean;
+} {
+  if (!entry?.command) return { detail: null, stale: false };
+  const args = entry.args ?? [];
+  const script = [...args].reverse().find((a) => a.endsWith(".js"));
+  const viaApp = entry.command.includes("Oatmeal.app") || entry.command === process.execPath;
+  const detail = script
+    ? `runs ${viaApp ? "the bundled server" : script} via ${viaApp ? "Oatmeal" : path.basename(entry.command)}`
+    : `runs ${path.basename(entry.command)}`;
+  const stale =
+    (script != null && !fs.existsSync(script)) ||
+    (!!entry.command.startsWith("/") && !fs.existsSync(entry.command));
+  return { detail, stale };
+}
+
+function codexEntryFromToml(): { command?: string; args?: string[] } | null {
+  if (!fs.existsSync(paths.codexConfig)) return null;
+  const toml = fs.readFileSync(paths.codexConfig, "utf8");
+  const m = toml.match(/\[mcp_servers\.oatmeal\]([^[]*)/);
+  if (!m) return null;
+  const cmd = m[1].match(/command\s*=\s*"((?:[^"\\]|\\.)*)"/)?.[1];
+  const argsRaw = m[1].match(/args\s*=\s*\[([^\]]*)\]/)?.[1] ?? "";
+  const args = [...argsRaw.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]);
+  return cmd ? { command: cmd, args } : null;
+}
+
+// Paste-ready one-liner for CLI tools (user can also just click Connect).
+// Verified forms: `claude mcp add` refuses to overwrite, so remove first
+// (name must precede -e — its --env flag is variadic); `codex mcp add`
+// overwrites in place.
+function cliCommandFor(id: IntegrationId, launch: McpLaunch): string | null {
+  const bin = sh(launch.command);
+  const args = launch.args.map(sh).join(" ");
+  switch (id) {
+    case "claude-code":
+      return `claude mcp remove oatmeal -s user >/dev/null 2>&1; claude mcp add oatmeal -s user -e ELECTRON_RUN_AS_NODE=1 -- ${bin} ${args}`;
+    case "codex":
+      return `codex mcp add oatmeal --env ELECTRON_RUN_AS_NODE=1 -- ${bin} ${args}`;
+    default:
+      return null; // GUI tools (config write) or no non-interactive CLI
+  }
+}
+
+const OPENABLE: Partial<Record<IntegrationId, { app: string; webFallback: string }>> = {
+  "claude-desktop": { app: "Claude", webFallback: "https://claude.ai" },
+  "copilot-vscode": {
+    app: "Visual Studio Code",
+    webFallback: "https://code.visualstudio.com",
+  },
+};
+
+function appExists(name: string): boolean {
+  return fs.existsSync(`/Applications/${name}.app`);
+}
+
+// Launch the connected tool (or its web fallback) so the user lands in it.
+export async function openIntegration(id: IntegrationId): Promise<void> {
+  const target = OPENABLE[id];
+  if (!target) return;
+  if (appExists(target.app)) {
+    spawn("open", ["-a", target.app], { detached: true, stdio: "ignore" }).unref();
+  } else {
+    await shell.openExternal(target.webFallback);
+  }
+}
+
 // --- status + registry ---
 
 const TOOLS: {
@@ -136,7 +214,7 @@ const TOOLS: {
   label: string;
   installed: () => boolean;
   configPath: string;
-  connected: () => boolean;
+  entry: () => { command?: string; args?: string[] } | null;
   connect: (launch: McpLaunch) => void;
 }[] = [
   {
@@ -144,15 +222,16 @@ const TOOLS: {
     label: "Claude Code",
     installed: () => fs.existsSync(paths.claudeCode),
     configPath: paths.claudeCode,
-    connected: () => !!readJson(paths.claudeCode)?.mcpServers?.oatmeal,
+    entry: () => readJson(paths.claudeCode)?.mcpServers?.oatmeal ?? null,
     connect: connectClaudeCode,
   },
   {
     id: "claude-desktop",
     label: "Claude Desktop",
-    installed: () => fs.existsSync(path.dirname(paths.claudeDesktop)),
+    installed: () =>
+      appExists("Claude") || fs.existsSync(path.dirname(paths.claudeDesktop)),
     configPath: paths.claudeDesktop,
-    connected: () => !!readJson(paths.claudeDesktop)?.mcpServers?.oatmeal,
+    entry: () => readJson(paths.claudeDesktop)?.mcpServers?.oatmeal ?? null,
     connect: connectClaudeDesktop,
   },
   {
@@ -160,9 +239,7 @@ const TOOLS: {
     label: "Codex CLI",
     installed: () => fs.existsSync(paths.codexDir),
     configPath: paths.codexConfig,
-    connected: () =>
-      fs.existsSync(paths.codexConfig) &&
-      /\[mcp_servers\.oatmeal\]/.test(fs.readFileSync(paths.codexConfig, "utf8")),
+    entry: codexEntryFromToml,
     connect: connectCodex,
   },
   {
@@ -170,7 +247,7 @@ const TOOLS: {
     label: "GitHub Copilot (VS Code)",
     installed: () => fs.existsSync(paths.vscodeUserDir),
     configPath: paths.vscodeMcp,
-    connected: () => !!readJson(paths.vscodeMcp)?.servers?.oatmeal,
+    entry: () => readJson(paths.vscodeMcp)?.servers?.oatmeal ?? null,
     connect: connectCopilotVscode,
   },
   {
@@ -178,19 +255,28 @@ const TOOLS: {
     label: "GitHub Copilot CLI",
     installed: () => fs.existsSync(paths.copilotCliDir),
     configPath: paths.copilotCliConfig,
-    connected: () => !!readJson(paths.copilotCliConfig)?.mcpServers?.oatmeal,
+    entry: () => readJson(paths.copilotCliConfig)?.mcpServers?.oatmeal ?? null,
     connect: connectCopilotCli,
   },
 ];
 
 export function integrationStatus(): IntegrationStatus[] {
-  return TOOLS.map((t) => ({
-    id: t.id,
-    label: t.label,
-    installed: t.installed(),
-    connected: t.connected(),
-    configPath: t.configPath,
-  }));
+  const launch = mcpLaunch();
+  return TOOLS.map((t) => {
+    const entry = t.entry();
+    const { detail, stale } = inspectEntry(entry);
+    return {
+      id: t.id,
+      label: t.label,
+      installed: t.installed(),
+      connected: entry != null,
+      stale,
+      detail,
+      cliCommand: cliCommandFor(t.id, launch),
+      openable: t.id in OPENABLE,
+      configPath: t.configPath,
+    };
+  });
 }
 
 export function connectIntegration(id: IntegrationId): IntegrationStatus[] {

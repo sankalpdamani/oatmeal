@@ -21,7 +21,12 @@ import * as llm from "./ollama";
 import { Recorder } from "./recorder";
 import { generateSummary, generateTitle, stripEmojis } from "./finalize";
 import * as retrieval from "./retrieval";
-import { connectIntegration, integrationStatus, type IntegrationId } from "./integrations";
+import {
+  connectIntegration,
+  integrationStatus,
+  openIntegration,
+  type IntegrationId,
+} from "./integrations";
 import { checkForUpdate, startUpdateChecks } from "./updates";
 
 let win: BrowserWindow | null = null;
@@ -489,6 +494,7 @@ function registerIpc() {
   ipcMain.handle("meetings:list", () => db.listMeetings());
   ipcMain.handle("integrations:status", () => integrationStatus());
   ipcMain.handle("integrations:connect", (_e, id: IntegrationId) => connectIntegration(id));
+  ipcMain.handle("integrations:open", (_e, id: IntegrationId) => openIntegration(id));
   ipcMain.handle("updates:check", () => checkForUpdate(app.getVersion()));
 
   ipcMain.handle("meetings:search", (_e, query: string) => {
