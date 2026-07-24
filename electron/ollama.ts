@@ -60,6 +60,22 @@ async function llmError(res: Response, model: string): Promise<Error> {
   return new Error("Your local AI had trouble answering that. Please try again in a moment.");
 }
 
+// Embed one or more texts via the OpenAI-compatible /v1/embeddings endpoint
+// (Ollama, LM Studio, … all support it). Returns vectors in input order.
+export async function embed(model: string, inputs: string[]): Promise<number[][]> {
+  if (inputs.length === 0) return [];
+  const res = await fetch(`${baseUrl}/embeddings`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, input: inputs }),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!res.ok) throw await llmError(res, model);
+  const json = (await res.json()) as { data?: { embedding: number[]; index: number }[] };
+  const rows = (json.data ?? []).slice().sort((a, b) => a.index - b.index);
+  return rows.map((r) => r.embedding);
+}
+
 export interface ChatTurn {
   role: "system" | "user" | "assistant";
   content: string;

@@ -65,5 +65,6 @@ export interface Settings {
   sttModel: string;
   llmModel: string;
   llmBaseUrl: string;
+  embedModel: string;
   detectionEnabled: boolean;
 }

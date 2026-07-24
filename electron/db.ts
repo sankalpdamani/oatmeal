@@ -40,7 +40,37 @@ export function initDb() {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS embeddings (
+      meeting_id TEXT NOT NULL,
+      chunk_key TEXT NOT NULL,
+      vec TEXT NOT NULL,
+      PRIMARY KEY (meeting_id, chunk_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_embeddings_meeting ON embeddings(meeting_id);
   `);
+}
+
+// Cached chunk embeddings, keyed by a hash of the chunk text so re-chunking the
+// same content reuses vectors instead of re-embedding.
+export function getEmbeddings(meetingId: string): Map<string, number[]> {
+  const rows = db
+    .prepare("SELECT chunk_key, vec FROM embeddings WHERE meeting_id = ?")
+    .all(meetingId) as { chunk_key: string; vec: string }[];
+  const map = new Map<string, number[]>();
+  for (const r of rows) {
+    try {
+      map.set(r.chunk_key, JSON.parse(r.vec) as number[]);
+    } catch {
+      /* skip corrupt row */
+    }
+  }
+  return map;
+}
+
+export function putEmbedding(meetingId: string, chunkKey: string, vec: number[]) {
+  db.prepare(
+    "INSERT OR REPLACE INTO embeddings (meeting_id, chunk_key, vec) VALUES (?, ?, ?)"
+  ).run(meetingId, chunkKey, JSON.stringify(vec));
 }
 
 const rowToMeeting = (r: any): Meeting => ({
@@ -85,6 +115,9 @@ export function renameMeeting(id: string, title: string) {
 }
 
 export function deleteMeeting(id: string) {
+  db.prepare("DELETE FROM segments WHERE meeting_id = ?").run(id);
+  db.prepare("DELETE FROM chat_messages WHERE meeting_id = ?").run(id);
+  db.prepare("DELETE FROM embeddings WHERE meeting_id = ?").run(id);
   db.prepare("DELETE FROM meetings WHERE id = ?").run(id);
 }
 
