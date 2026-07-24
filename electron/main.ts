@@ -63,10 +63,35 @@ function getSettings(): Settings {
   };
 }
 
+// Auto-pull the embedding model once the LLM server is reachable (Ollama only).
+let embedModelEnsured = false;
+async function ensureEmbedModel(): Promise<void> {
+  const model = getSettings().embedModel;
+  if (!model) return;
+  try {
+    if (!(await llm.isOllama())) return; // only Ollama supports pulling
+    if (await llm.hasModel(model)) {
+      retrieval.resetEmbedAvailability();
+      return;
+    }
+    console.log(`auto-pulling embedding model "${model}"…`);
+    await llm.pullModel(model);
+    retrieval.resetEmbedAvailability();
+    console.log(`embedding model "${model}" ready`);
+  } catch (e) {
+    console.error("auto-pull of embedding model skipped:", (e as Error).message);
+  }
+}
+
 async function getStatus(): Promise<AppStatus> {
   const s = getSettings();
+  const up = await llm.llmUp();
+  if (up && !embedModelEnsured) {
+    embedModelEnsured = true;
+    void ensureEmbedModel();
+  }
   return {
-    llmUp: await llm.llmUp(),
+    llmUp: up,
     whisperReady: whisper.whisperReady(),
     sttModel: whisper.currentSttModel() ?? s.sttModel,
     llmModel: s.llmModel,
@@ -308,8 +333,12 @@ function registerIpc() {
     if (patch.llmBaseUrl !== undefined) {
       llm.setLlmBaseUrl(s.llmBaseUrl);
       retrieval.resetEmbedAvailability();
+      embedModelEnsured = false;
     }
-    if (patch.embedModel !== undefined) retrieval.resetEmbedAvailability();
+    if (patch.embedModel !== undefined) {
+      retrieval.resetEmbedAvailability();
+      embedModelEnsured = false;
+    }
     return s;
   });
 

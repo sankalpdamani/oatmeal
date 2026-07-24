@@ -198,8 +198,9 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 className="w-full bg-transparent text-[13px] outline-none placeholder:text-ink-tertiary"
               />
               <div className="mt-1 text-[12px] text-ink-tertiary">
-                Install it in your model app for meaning-based chat search on long
-                meetings. Without it, Oatmeal uses keyword search.
+                Powers meaning-based chat search on long meetings. On Ollama it's
+                installed automatically; otherwise install it in your model app.
+                Without it, Oatmeal uses keyword search.
               </div>
             </label>
           </div>

@@ -30,6 +30,44 @@ export async function llmUp(): Promise<boolean> {
   }
 }
 
+// --- Ollama-only helpers (for auto-pulling models) ---
+// Ollama's native API lives at the base without the OpenAI `/v1` suffix.
+function ollamaBase(): string {
+  return baseUrl.replace(/\/v1\/?$/, "");
+}
+
+export async function isOllama(): Promise<boolean> {
+  try {
+    const res = await fetch(`${ollamaBase()}/api/version`, { signal: AbortSignal.timeout(1500) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function hasModel(name: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${ollamaBase()}/api/tags`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return false;
+    const json = (await res.json()) as { models?: { name: string }[] };
+    const base = name.split(":")[0];
+    return (json.models ?? []).some((m) => m.name === name || m.name.split(":")[0] === base);
+  } catch {
+    return false;
+  }
+}
+
+// Pull a model via Ollama's native API (waits until the download finishes).
+export async function pullModel(name: string): Promise<void> {
+  const res = await fetch(`${ollamaBase()}/api/pull`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: name, stream: false }),
+    signal: AbortSignal.timeout(600000),
+  });
+  if (!res.ok) throw new Error(`pull failed: HTTP ${res.status}`);
+}
+
 // Models the server currently exposes (OpenAI `/v1/models`).
 export async function listLlmModels(): Promise<LlmModel[]> {
   const res = await fetch(`${baseUrl}/models`, { signal: AbortSignal.timeout(3000) });
