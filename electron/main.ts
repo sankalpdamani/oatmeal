@@ -339,7 +339,7 @@ function registerIpc() {
     // summary (a compact whole-meeting view). Keeps the prompt small and fast.
     const transcript = await retrieval.retrieveContext(meetingId, content, s.embedModel);
     const history = db.listChatMessages(meetingId).slice(-8);
-    const system = `You answer questions about a meeting using its summary and the relevant transcript excerpts below. "Me" is the app user; "Them" is everyone else. Quote the excerpts when helpful. If the answer isn't in them, say so plainly.
+    const system = `You answer questions about a meeting using its summary and the relevant transcript excerpts below. In the transcript, "Me" is the person you're talking to — address them as "you". "Them" is the other participant(s) on the call — refer to them naturally as "the other participant", "someone on the call", or "the other side", and never write the literal word "Them". Quote wording from the excerpts when helpful. If the answer isn't in the excerpts, say so plainly. Keep answers concise and skimmable.
 
 MEETING: ${meeting?.title ?? ""}
 SUMMARY:
