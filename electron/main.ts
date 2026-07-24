@@ -11,6 +11,7 @@ import {
 import { spawn, execFile, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
+import http from "node:http";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AppStatus, DetectionState, Segment, Settings } from "../shared/types";
@@ -370,6 +371,60 @@ async function stopRecording(reason: "manual" | "auto" = "manual"): Promise<void
   send("finalized", { meetingId: id, title: m?.title ?? "", summaryMd: m?.summaryMd ?? "" });
 }
 
+// Loopback-only control endpoint for the Oatmeal MCP server (mcp/).
+// Lets Claude check status and start/stop recordings when the app is running.
+const CONTROL_PORT = 17772;
+function startControlServer() {
+  const srv = http.createServer(async (req, res) => {
+    const json = (code: number, payload: unknown) => {
+      res.writeHead(code, { "content-type": "application/json" });
+      res.end(JSON.stringify(payload));
+    };
+    try {
+      if (req.method === "GET" && req.url === "/status") {
+        const meeting = activeMeetingId ? db.getMeeting(activeMeetingId) : null;
+        return json(200, {
+          recording: !!activeMeetingId,
+          meetingId: activeMeetingId,
+          meetingTitle: meeting?.title ?? null,
+          whisperReady: whisper.whisperReady(),
+          llmUp: await llm.llmUp(),
+        });
+      }
+      if (req.method === "POST" && req.url === "/start") {
+        if (activeMeetingId) {
+          return json(409, {
+            error: "A meeting is already being recorded. Stop it first with /stop.",
+          });
+        }
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        const { title = "" } = body ? (JSON.parse(body) as { title?: string }) : {};
+        const id = await startRecording(title || "");
+        win?.show();
+        return json(200, { started: true, meetingId: id });
+      }
+      if (req.method === "POST" && req.url === "/stop") {
+        if (!activeMeetingId) return json(409, { error: "No active recording to stop." });
+        const id = activeMeetingId;
+        await stopRecording("manual");
+        const m = db.getMeeting(id);
+        return json(200, {
+          stopped: true,
+          meetingId: id,
+          title: m?.title ?? "",
+          summaryMarkdown: m?.summaryMd ?? "",
+        });
+      }
+      json(404, { error: "Unknown route. Available: GET /status, POST /start, POST /stop." });
+    } catch (e) {
+      json(500, { error: String(e instanceof Error ? e.message : e) });
+    }
+  });
+  srv.on("error", (e) => console.error("control server error:", e));
+  srv.listen(CONTROL_PORT, "127.0.0.1");
+}
+
 function transcriptMarkdown(meetingId: string): string {
   const m = db.getMeeting(meetingId);
   const segs = db.listSegments(meetingId);
@@ -558,6 +613,7 @@ app.whenReady().then(async () => {
   db.initDb();
   llm.setLlmBaseUrl(getSettings().llmBaseUrl);
   registerIpc();
+  startControlServer();
   createWindow();
   createTray();
 

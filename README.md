@@ -119,6 +119,25 @@ The DMG is ad-hoc signed but not notarized. If macOS says Oatmeal "is
 damaged and can't be opened," drag it to `/Applications` and run once:
 `xattr -dr com.apple.quarantine /Applications/Oatmeal.app`.
 
+## MCP server (use Oatmeal from Claude)
+
+`mcp/` contains a stdio MCP server that lets Claude (Desktop or Code) work
+with your meetings: `oatmeal_list_meetings`, `oatmeal_get_meeting`,
+`oatmeal_get_transcript`, `oatmeal_search`, `oatmeal_recording_status`,
+`oatmeal_start_recording`, `oatmeal_stop_recording`.
+
+Reads go straight to the local SQLite DB (works even when the app is closed);
+recording control talks to the app's loopback endpoint (`127.0.0.1:17772`),
+so start/stop needs the app running.
+
+```bash
+cd mcp && npm install && npm run build
+# Claude Code:
+claude mcp add --scope user oatmeal -- node "$(pwd)/dist/index.js"
+# Claude Desktop: add to claude_desktop_config.json:
+#   "mcpServers": { "oatmeal": { "command": "node", "args": ["<path>/mcp/dist/index.js"] } }
+```
+
 ## Privacy
 
 Everything — audio, transcripts, summaries, chats — lives in
