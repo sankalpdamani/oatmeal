@@ -1,5 +1,15 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
+import type { Meeting } from "../../shared/types";
+
+interface SegmentHit {
+  meetingId: string;
+  meetingTitle: string;
+  startedAt: number;
+  speaker: string;
+  snippet: string;
+  t0Ms: number;
+}
 
 export default function Home() {
   const meetings = useStore((s) => s.meetings);
@@ -10,6 +20,28 @@ export default function Home() {
   const openMeeting = useStore((s) => s.openMeeting);
   const refresh = useStore((s) => s.refresh);
   const [starting, setStarting] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<{ segments: SegmentHit[]; meetings: Meeting[] } | null>(
+    null
+  );
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults(null);
+      return;
+    }
+    debounceRef.current = setTimeout(() => {
+      void window.oatmeal.searchMeetings(q).then(setResults);
+    }, 200);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query]);
+
+  const searching = results !== null;
 
   const start = async (title: string, appName?: string | null) => {
     setStarting(true);
@@ -50,18 +82,33 @@ export default function Home() {
         </div>
       )}
 
-      <div className="flex items-center justify-between pt-2">
+      <div className="flex items-center justify-between gap-3 pt-2">
         <h1 className="text-[22px] font-semibold tracking-tight">Meetings</h1>
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search meetings…"
+          className="min-w-0 flex-1 rounded-lg border border-hairline bg-surface-raised px-3 py-2 text-[13px] outline-none placeholder:text-ink-tertiary focus:ring-1 focus:ring-accent"
+        />
         <button
           disabled={starting || !!recordingId}
           onClick={() => void start("")}
-          className="rounded-lg bg-accent px-4 py-2 text-[13px] font-medium text-ink-inverse shadow-card hover:bg-accent-hover disabled:opacity-50"
+          className="shrink-0 rounded-lg bg-accent px-4 py-2 text-[13px] font-medium text-ink-inverse shadow-card hover:bg-accent-hover disabled:opacity-50"
         >
           {recordingId ? "Recording…" : "New meeting"}
         </button>
       </div>
 
-      {meetings.length === 0 ? (
+      {searching ? (
+        <SearchResults
+          results={results!}
+          onOpen={(id) => {
+            setQuery("");
+            setResults(null);
+            void openMeeting(id);
+          }}
+        />
+      ) : meetings.length === 0 ? (
         <div className="mt-16 flex flex-col items-center gap-2 text-center">
           <div className="text-4xl">🥣</div>
           <div className="text-[15px] font-medium">No meetings yet</div>
@@ -126,6 +173,79 @@ export default function Home() {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+function SearchResults({
+  results,
+  onOpen,
+}: {
+  results: { segments: SegmentHit[]; meetings: Meeting[] };
+  onOpen: (id: string) => void;
+}) {
+  const empty = results.segments.length === 0 && results.meetings.length === 0;
+  if (empty) {
+    return (
+      <div className="pt-12 text-center text-[13px] text-ink-tertiary">
+        Nothing found. Try different words.
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      {results.meetings.length > 0 && (
+        <div>
+          <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-secondary">
+            Meetings
+          </h2>
+          <ul className="flex flex-col gap-1.5">
+            {results.meetings.map((m) => (
+              <li key={m.id}>
+                <button
+                  onClick={() => onOpen(m.id)}
+                  className="w-full rounded-lg border border-hairline bg-surface-raised px-3 py-2 text-left text-[13.5px] font-medium hover:bg-surface-elevated"
+                >
+                  {m.title}
+                  <span className="ml-2 text-[12px] font-normal text-ink-tertiary">
+                    {new Date(m.startedAt).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {results.segments.length > 0 && (
+        <div>
+          <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-secondary">
+            In transcripts
+          </h2>
+          <ul className="flex flex-col gap-1.5">
+            {results.segments.map((s, i) => (
+              <li key={`${s.meetingId}-${s.t0Ms}-${i}`}>
+                <button
+                  onClick={() => onOpen(s.meetingId)}
+                  className="w-full rounded-lg border border-hairline bg-surface-raised px-3 py-2 text-left hover:bg-surface-elevated"
+                >
+                  <span className="block truncate text-[12px] text-ink-tertiary">
+                    {s.meetingTitle} ·{" "}
+                    {new Date(s.startedAt).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })}{" "}
+                    · {s.speaker === "me" ? "Me" : "Them"}
+                  </span>
+                  <span className="block text-[13px] leading-relaxed">{s.snippet}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   );

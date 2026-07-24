@@ -225,12 +225,151 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
           </div>
         </Section>
 
+        <Section title="Connect your AI tools (MCP)">
+          <IntegrationsPanel />
+        </Section>
+
+        <Section title="Updates">
+          <UpdateRow />
+        </Section>
+
         <p className="mt-4 text-[12px] leading-relaxed text-ink-tertiary">
           Everything — audio, transcripts, summaries, chats — stays on this Mac.
           Oatmeal makes no network calls except to your local LLM server and
           whisper, and to download models you ask for.
         </p>
       </div>
+    </div>
+  );
+}
+
+interface IntegrationRow {
+  id: string;
+  label: string;
+  installed: boolean;
+  connected: boolean;
+  configPath: string;
+}
+
+function IntegrationsPanel() {
+  const [rows, setRows] = useState<IntegrationRow[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [justConnected, setJustConnected] = useState<string | null>(null);
+
+  useEffect(() => {
+    void window.oatmeal.integrationStatus().then(setRows);
+  }, []);
+
+  const connect = async (id: string) => {
+    setBusy(id);
+    try {
+      setRows(await window.oatmeal.connectIntegration(id));
+      setJustConnected(id);
+      setTimeout(() => setJustConnected((j) => (j === id ? null : j)), 4000);
+    } catch (e) {
+      console.error(e);
+      alert("Couldn't write that tool's config. Please try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const visible = rows.filter((r) => r.installed);
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-[12.5px] leading-relaxed text-ink-secondary">
+        One click adds Oatmeal's MCP server to a tool's config so its AI can
+        list your meetings, read transcripts and summaries, search them, and
+        start/stop recording. Everything runs locally over stdio — transcripts
+        never leave this Mac, so you can query them with whatever models your
+        company has approved.
+      </p>
+      {visible.length === 0 && (
+        <div className="rounded-lg border border-hairline px-3 py-2.5 text-[13px] text-ink-secondary">
+          No supported tools found. Install Claude Code, Claude Desktop, Codex
+          CLI, or GitHub Copilot and come back.
+        </div>
+      )}
+      {visible.map((r) => (
+        <div
+          key={r.id}
+          className="flex items-center justify-between rounded-lg border border-hairline px-3 py-2.5"
+        >
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium">{r.label}</div>
+            <div className="truncate text-[11.5px] text-ink-tertiary">{r.configPath}</div>
+          </div>
+          {r.connected ? (
+            <span className="ml-3 shrink-0 rounded-full bg-surface-green px-2.5 py-1 text-[12px] font-medium text-accent">
+              {justConnected === r.id ? "Connected — restart the tool" : "Connected"}
+            </span>
+          ) : (
+            <button
+              disabled={busy === r.id}
+              onClick={() => void connect(r.id)}
+              className="ml-3 shrink-0 rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-ink-inverse hover:bg-accent-hover disabled:opacity-50"
+            >
+              {busy === r.id ? "Connecting…" : "Connect"}
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function UpdateRow() {
+  const [state, setState] = useState<
+    | { phase: "idle" }
+    | { phase: "checking" }
+    | { phase: "done"; current: string; latest: string | null; available: boolean; page: string }
+  >({ phase: "idle" });
+
+  const check = async () => {
+    setState({ phase: "checking" });
+    const info = await window.oatmeal.checkForUpdate();
+    setState({
+      phase: "done",
+      current: info.currentVersion,
+      latest: info.latestVersion,
+      available: info.updateAvailable,
+      page: info.releasePage,
+    });
+  };
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-hairline px-3 py-2.5">
+      <span className="text-[13px]">
+        {state.phase === "done" ? (
+          state.available ? (
+            <>
+              Update available: <strong>{state.latest}</strong> (you have {state.current})
+            </>
+          ) : state.latest ? (
+            <>You're up to date ({state.current})</>
+          ) : (
+            <>Couldn't reach the update server — try again later</>
+          )
+        ) : (
+          <>Oatmeal checks for new versions once a day</>
+        )}
+      </span>
+      {state.phase === "done" && state.available ? (
+        <button
+          onClick={() => void window.oatmeal.openExternal(state.page)}
+          className="ml-3 shrink-0 rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-ink-inverse hover:bg-accent-hover"
+        >
+          Download
+        </button>
+      ) : (
+        <button
+          disabled={state.phase === "checking"}
+          onClick={() => void check()}
+          className="ml-3 shrink-0 rounded-md bg-fill-soft-opaque px-2.5 py-1 text-[12px] font-medium hover:bg-fill-soft-hover disabled:opacity-50"
+        >
+          {state.phase === "checking" ? "Checking…" : "Check now"}
+        </button>
+      )}
     </div>
   );
 }

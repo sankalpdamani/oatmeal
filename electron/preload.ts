@@ -25,6 +25,19 @@ const api = {
     ipcRenderer.invoke("settings:set", patch),
 
   listMeetings: (): Promise<Meeting[]> => ipcRenderer.invoke("meetings:list"),
+  searchMeetings: (
+    query: string
+  ): Promise<{
+    segments: {
+      meetingId: string;
+      meetingTitle: string;
+      startedAt: number;
+      speaker: string;
+      snippet: string;
+      t0Ms: number;
+    }[];
+    meetings: Meeting[];
+  }> => ipcRenderer.invoke("meetings:search", query),
   getMeeting: (
     id: string
   ): Promise<{ meeting: Meeting | null; segments: Segment[]; chat: ChatMessage[] }> =>
@@ -55,6 +68,20 @@ const api = {
     ipcRenderer.invoke("permissions:request-systemaudio"),
   relaunch: (): Promise<void> => ipcRenderer.invoke("app:relaunch"),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke("open-external", url),
+  integrationStatus: (): Promise<
+    { id: string; label: string; installed: boolean; connected: boolean; configPath: string }[]
+  > => ipcRenderer.invoke("integrations:status"),
+  connectIntegration: (
+    id: string
+  ): Promise<
+    { id: string; label: string; installed: boolean; connected: boolean; configPath: string }[]
+  > => ipcRenderer.invoke("integrations:connect", id),
+  checkForUpdate: (): Promise<{
+    currentVersion: string;
+    latestVersion: string | null;
+    updateAvailable: boolean;
+    releasePage: string;
+  }> => ipcRenderer.invoke("updates:check"),
   openPrivacySettings: (pane: "mic" | "systemaudio"): Promise<void> =>
     ipcRenderer.invoke("open-privacy-settings", pane),
 

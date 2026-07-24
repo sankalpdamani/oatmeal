@@ -1,7 +1,7 @@
 {
   "name": "oatmeal",
   "productName": "Oatmeal",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Local-first meeting notetaker. Your meetings never leave your Mac.",
   "private": true,
   "main": "dist-electron/main.js",
@@ -14,10 +14,12 @@
     "setup": "bash scripts/setup.sh",
     "doctor": "bash scripts/doctor.sh",
     "dev": "vite",
-    "build": "npm run build:native && tsc -p tsconfig.electron.json --noEmit && vite build",
+    "build": "npm run build:native && npm run build:mcp && tsc -p tsconfig.electron.json --noEmit && vite build",
     "build:native": "bash scripts/build-native.sh",
     "build:whisper": "bash scripts/build-whisper.sh",
+    "build:mcp": "esbuild mcp/src/index.ts --bundle --platform=node --format=esm --outfile=resources/mcp/index.js --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
     "dist": "npm run build && electron-builder --mac --arm64 --publish never",
     "rebuild": "electron-rebuild -f -w better-sqlite3"
   },
@@ -29,13 +31,15 @@
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
-    "electron": "^33.0.0",
+    "electron": "^36.9.5",
     "electron-builder": "^25.0.0",
+    "esbuild": "^0.28.1",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.6.0",
     "vite": "^6.0.0",
     "vite-plugin-electron": "^0.29.0",
-    "vite-plugin-electron-renderer": "^0.14.6"
+    "vite-plugin-electron-renderer": "^0.14.6",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",
@@ -46,17 +50,39 @@
   "build": {
     "appId": "com.sankalp.oatmeal",
     "productName": "Oatmeal",
-    "directories": { "output": "release" },
-    "files": ["dist/**", "dist-electron/**"],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**"
+    ],
     "afterPack": "scripts/after-pack.cjs",
     "artifactName": "Oatmeal-macOS-arm64.${ext}",
     "extraResources": [
-      { "from": "resources/bin", "to": "bin" },
-      { "from": "resources/models", "to": "models" }
+      {
+        "from": "resources/bin",
+        "to": "bin"
+      },
+      {
+        "from": "resources/models",
+        "to": "models"
+      },
+      {
+        "from": "resources/mcp",
+        "to": "mcp"
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": [{ "target": "dmg", "arch": ["arm64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
       "identity": null,
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Oatmeal transcribes your side of meetings from the microphone. Audio never leaves your Mac.",

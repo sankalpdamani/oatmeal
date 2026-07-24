@@ -48,6 +48,88 @@ export function initDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_embeddings_meeting ON embeddings(meeting_id);
   `);
+  initFts();
+}
+
+// Full-text search over transcript segments, kept in sync by triggers.
+// (Meeting titles/summaries are searched with LIKE — they're small.)
+function initFts() {
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS segments_fts USING fts5(
+      text, content='segments', content_rowid='id'
+    );
+    CREATE TRIGGER IF NOT EXISTS segments_ai AFTER INSERT ON segments BEGIN
+      INSERT INTO segments_fts(rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS segments_ad AFTER DELETE ON segments BEGIN
+      INSERT INTO segments_fts(segments_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS segments_au AFTER UPDATE ON segments BEGIN
+      INSERT INTO segments_fts(segments_fts, rowid, text) VALUES ('delete', old.id, old.text);
+      INSERT INTO segments_fts(rowid, text) VALUES (new.id, new.text);
+    END;
+  `);
+  // One-time backfill for rows that predate the FTS table.
+  const ftsCount = (db.prepare("SELECT COUNT(*) AS n FROM segments_fts").get() as { n: number }).n;
+  const segCount = (db.prepare("SELECT COUNT(*) AS n FROM segments").get() as { n: number }).n;
+  if (ftsCount < segCount) {
+    db.exec(
+      "INSERT INTO segments_fts(rowid, text) SELECT id, text FROM segments WHERE id NOT IN (SELECT rowid FROM segments_fts)"
+    );
+  }
+}
+
+// Escape user input for FTS5 MATCH: quote each term, keep it a simple AND query.
+export function ftsQuery(input: string): string {
+  return input
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((t) => `"${t.replace(/"/g, "")}"`)
+    .join(" ");
+}
+
+export interface SearchHit {
+  meetingId: string;
+  meetingTitle: string;
+  startedAt: number;
+  speaker: string;
+  snippet: string;
+  t0Ms: number;
+}
+
+export function searchSegments(query: string, limit = 30): SearchHit[] {
+  const q = ftsQuery(query);
+  if (!q) return [];
+  const rows = db
+    .prepare(
+      `SELECT s.meeting_id, m.title, m.started_at, s.speaker, s.t0_ms,
+              snippet(segments_fts, 0, '', '', ' … ', 18) AS snip
+       FROM segments_fts f
+       JOIN segments s ON s.id = f.rowid
+       JOIN meetings m ON m.id = s.meeting_id
+       WHERE segments_fts MATCH ?
+       ORDER BY rank LIMIT ?`
+    )
+    .all(q, limit) as any[];
+  return rows.map((r) => ({
+    meetingId: r.meeting_id,
+    meetingTitle: r.title,
+    startedAt: r.started_at,
+    speaker: r.speaker,
+    snippet: r.snip,
+    t0Ms: r.t0_ms,
+  }));
+}
+
+export function searchMeetingsByTitleOrSummary(query: string, limit = 20): Meeting[] {
+  const like = `%${query}%`;
+  return db
+    .prepare(
+      "SELECT id, title, started_at, ended_at, summary_md FROM meetings WHERE title LIKE ? OR summary_md LIKE ? ORDER BY started_at DESC LIMIT ?"
+    )
+    .all(like, like, limit)
+    .map(rowToMeeting);
 }
 
 // Cached chunk embeddings, keyed by a hash of the chunk text so re-chunking the

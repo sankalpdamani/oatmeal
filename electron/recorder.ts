@@ -1,51 +1,43 @@
-// Spawns the OatmealAudio helper, parses tagged PCM frames, segments speech on
-// silence (RMS gate), and turns chunks into transcript segments via whisper-server.
+// Spawns the OatmealAudio helper, parses tagged PCM frames, and turns speech
+// into transcript segments via whisper-server. Chunking is handled by the
+// SpeechChunker VAD (adaptive noise floor + pre-roll + hangover) in vad.ts.
 import { spawn, type ChildProcess } from "node:child_process";
 import type { Segment, Speaker } from "../shared/types";
 import * as db from "./db";
 import { binaryPath, transcribeChunk } from "./whisper";
-
-const SAMPLE_RATE = 16000;
-const BYTES_PER_SEC = SAMPLE_RATE * 2;
-const SILENCE_RMS = 350; // Int16 RMS below this counts as silence
-const SILENCE_FLUSH_MS = 700; // flush after this much trailing silence
-const MIN_CHUNK_MS = 1200; // ignore blips shorter than this
-const MAX_CHUNK_MS = 12000; // force flush so live view stays live
-
-interface StreamState {
-  speaker: Speaker;
-  buf: Buffer[];
-  bufMs: number;
-  silenceMs: number;
-  startedAtMs: number; // meeting-relative time of chunk start
-}
+import { SpeechChunker } from "./vad";
+import { cleanTranscript, isNoise, splitSpeakerTurns } from "./text";
 
 export class Recorder {
   private proc: ChildProcess | null = null;
   private meetingId: string;
-  private t0 = 0;
   private stopped = false;
   private queue: Promise<void> = Promise.resolve();
-  private streams: Record<"M" | "S", StreamState>;
+  private chunkers: Record<"M" | "S", { chunker: SpeechChunker; speaker: Speaker }>;
   private onSegment: (s: Segment) => void;
-  private onFatalExit: (code: number | null) => void;
+  private onError: (exitCode: number | null) => void;
+  private onSpeech: (() => void) | null;
+  /** Wall-clock ms of the last frame judged to contain speech (either stream). */
+  lastSpeechAt: number = Date.now();
 
   constructor(
     meetingId: string,
     onSegment: (s: Segment) => void,
-    onFatalExit: (code: number | null) => void
+    onError: (exitCode: number | null) => void,
+    onSpeech?: () => void
   ) {
     this.meetingId = meetingId;
     this.onSegment = onSegment;
-    this.onFatalExit = onFatalExit;
-    this.streams = {
-      M: { speaker: "me", buf: [], bufMs: 0, silenceMs: 0, startedAtMs: 0 },
-      S: { speaker: "them", buf: [], bufMs: 0, silenceMs: 0, startedAtMs: 0 },
+    this.onError = onError;
+    this.onSpeech = onSpeech ?? null;
+    this.chunkers = {
+      M: { chunker: new SpeechChunker(), speaker: "me" },
+      S: { chunker: new SpeechChunker(), speaker: "them" },
     };
   }
 
   start() {
-    this.t0 = Date.now();
+    this.lastSpeechAt = Date.now();
     this.proc = spawn(binaryPath("OatmealAudio"), ["capture"]);
     let pending = Buffer.alloc(0);
     this.proc.stdout!.on("data", (data: Buffer) => {
@@ -65,60 +57,41 @@ export class Recorder {
     });
     this.proc.on("exit", (code) => {
       this.proc = null;
-      // The helper exits non-zero when capture can't start (e.g. code 5 =
-      // ScreenCaptureKit/system-audio failed). Report it so the recording is
-      // torn down instead of appearing to run with no audio.
-      if (!this.stopped && code !== 0) this.onFatalExit(code);
+      if (!this.stopped && code !== 0) this.onError(code);
     });
   }
 
   private ingest(tag: "M" | "S", pcm: Buffer) {
-    const st = this.streams[tag];
-    const ms = (pcm.length / BYTES_PER_SEC) * 1000;
-    if (st.buf.length === 0) {
-      st.startedAtMs = Date.now() - this.t0 - ms;
+    const { chunker, speaker } = this.chunkers[tag];
+    const ev = chunker.push(pcm);
+    if (ev.inSpeech) {
+      this.lastSpeechAt = Date.now();
+      this.onSpeech?.();
     }
-    st.buf.push(pcm);
-    st.bufMs += ms;
-
-    let sumSq = 0;
-    const n = pcm.length / 2;
-    for (let i = 0; i < pcm.length; i += 2) {
-      const v = pcm.readInt16LE(i);
-      sumSq += v * v;
-    }
-    const rms = Math.sqrt(sumSq / Math.max(1, n));
-    st.silenceMs = rms < SILENCE_RMS ? st.silenceMs + ms : 0;
-
-    const shouldFlush =
-      (st.silenceMs >= SILENCE_FLUSH_MS && st.bufMs - st.silenceMs >= MIN_CHUNK_MS) ||
-      st.bufMs >= MAX_CHUNK_MS;
-    if (shouldFlush) this.flush(tag);
-    else if (st.silenceMs >= st.bufMs && st.bufMs > 3000) {
-      // pure silence — discard to keep memory flat
-      st.buf = [];
-      st.bufMs = 0;
-      st.silenceMs = 0;
-    }
+    if (ev.chunk) this.transcribe(speaker, ev.chunk);
   }
 
-  private flush(tag: "M" | "S") {
-    const st = this.streams[tag];
-    if (st.buf.length === 0) return;
-    const pcm = Buffer.concat(st.buf);
-    const t0Ms = Math.max(0, Math.round(st.startedAtMs));
-    const t1Ms = t0Ms + Math.round(st.bufMs);
-    st.buf = [];
-    st.bufMs = 0;
-    st.silenceMs = 0;
-
+  private transcribe(
+    speaker: Speaker,
+    chunk: { pcm: Buffer; startMs: number; durationMs: number }
+  ) {
     // Serialize whisper calls; the server handles one inference at a time well.
     this.queue = this.queue.then(async () => {
       try {
-        const text = cleanTranscript(await transcribeChunk(pcm));
+        const text = cleanTranscript(await transcribeChunk(chunk.pcm));
         if (!text || isNoise(text)) return;
-        const seg = db.addSegment(this.meetingId, st.speaker, text, t0Ms, t1Ms);
-        this.onSegment(seg);
+        // tdrz models mark remote speaker changes; store each turn as its own
+        // segment with times apportioned by character share.
+        const parts = splitSpeakerTurns(text).filter((p) => !isNoise(p));
+        if (parts.length === 0) return;
+        const totalChars = parts.reduce((n, p) => n + p.length, 0);
+        let cursor = chunk.startMs;
+        for (const part of parts) {
+          const span = Math.round((part.length / totalChars) * chunk.durationMs);
+          const seg = db.addSegment(this.meetingId, speaker, part, cursor, cursor + span);
+          cursor += span;
+          this.onSegment(seg);
+        }
       } catch (e) {
         console.error("transcribe failed:", e);
       }
@@ -127,33 +100,14 @@ export class Recorder {
 
   async stop() {
     this.stopped = true;
-    this.flush("M");
-    this.flush("S");
+    for (const tag of ["M", "S"] as const) {
+      const { chunker, speaker } = this.chunkers[tag];
+      const tail = chunker.flush();
+      if (tail) this.transcribe(speaker, tail);
+    }
     this.proc?.kill("SIGTERM");
     this.proc = null;
     await this.queue;
   }
 }
 
-// Whisper emits bracketed non-speech tags — [BLANK_AUDIO], (silence), [MUSIC] —
-// which can appear mid- or end-of-line on otherwise real speech. Strip them
-// everywhere before the whole-line noise check below sees the text.
-const TAG_RE =
-  /[\[(]\s*(blank_audio|silence|music|inaudible|no ?speech|no ?audio|applause|noise|sound)\s*[\])]/gi;
-function cleanTranscript(text: string): string {
-  return (text ?? "")
-    .replace(TAG_RE, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-// Whisper hallucinates fillers on near-silent audio; drop the classics.
-const NOISE_RE =
-  /^[\s.\-—]*$|^\(?\[?(silence|music|inaudible|blank_audio|no audio|applause)\]?\)?[.\s]*$/i;
-function isNoise(text: string): boolean {
-  const t = text.trim();
-  if (t.length < 2) return true;
-  if (NOISE_RE.test(t)) return true;
-  if (/^(thank you\.?|thanks for watching\.?|you)$/i.test(t)) return true;
-  return false;
-}

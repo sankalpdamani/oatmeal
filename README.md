@@ -119,16 +119,28 @@ The DMG is ad-hoc signed but not notarized. If macOS says Oatmeal "is
 damaged and can't be opened," drag it to `/Applications` and run once:
 `xattr -dr com.apple.quarantine /Applications/Oatmeal.app`.
 
-## MCP server (use Oatmeal from Claude)
+## MCP server (use Oatmeal from your AI tools)
 
-`mcp/` contains a stdio MCP server that lets Claude (Desktop or Code) work
-with your meetings: `oatmeal_list_meetings`, `oatmeal_get_meeting`,
+`mcp/` contains a stdio MCP server that lets any MCP client work with your
+meetings: `oatmeal_list_meetings`, `oatmeal_get_meeting`,
 `oatmeal_get_transcript`, `oatmeal_search`, `oatmeal_recording_status`,
 `oatmeal_start_recording`, `oatmeal_stop_recording`.
 
+**One-click connect:** Settings ▸ *Connect your AI tools* detects Claude Code,
+Claude Desktop, Codex CLI, GitHub Copilot (VS Code), and Copilot CLI, and a
+single click writes the MCP entry into that tool's config. The server is
+bundled inside the app and runs through Oatmeal's own binary
+(`ELECTRON_RUN_AS_NODE`), so nothing else needs to be installed — not even
+Node.
+
 Reads go straight to the local SQLite DB (works even when the app is closed);
 recording control talks to the app's loopback endpoint (`127.0.0.1:17772`),
-so start/stop needs the app running.
+so start/stop needs the app running. Transcripts never leave the machine —
+the connected tool spawns the server locally over stdio, so enterprises can
+point their approved models at meeting notes without any data leaving the
+laptop.
+
+Manual setup (if you'd rather not use the buttons):
 
 ```bash
 cd mcp && npm install && npm run build

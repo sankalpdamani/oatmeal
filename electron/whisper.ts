@@ -31,6 +31,13 @@ export const STT_CATALOG: Omit<SttModel, "installed">[] = [
     file: "ggml-large-v3-turbo.bin",
     url: `${HF_BASE}/ggml-large-v3-turbo.bin`,
   },
+  {
+    id: "small.en-tdrz",
+    label: "Whisper small.en-tdrz — separates remote speakers' turns",
+    sizeMb: 488,
+    file: "ggml-small.en-tdrz.bin",
+    url: `${HF_BASE}/ggml-small.en-tdrz.bin`,
+  },
 ];
 
 export function modelsDir(): string {
@@ -150,13 +157,17 @@ export async function startWhisper(modelId: string): Promise<void> {
   stopping = false;
 
   const bin = binaryPath("whisper-server");
-  proc = spawn(bin, [
+  const args = [
     "--model", modelPath,
     "--host", "127.0.0.1",
     "--port", String(WHISPER_PORT),
     "--threads", "4",
     "--no-timestamps",
-  ]);
+  ];
+  // tdrz models emit [SPEAKER_TURN] markers so multiple remote speakers'
+  // words land in separate transcript lines instead of one run-on segment.
+  if (modelId.endsWith("-tdrz")) args.push("--tinydiarize");
+  proc = spawn(bin, args);
   proc.stderr?.on("data", () => {});
   proc.stdout?.on("data", () => {});
   proc.on("exit", (code) => {

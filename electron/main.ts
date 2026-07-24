@@ -21,6 +21,8 @@ import * as llm from "./ollama";
 import { Recorder } from "./recorder";
 import { generateSummary, generateTitle, stripEmojis } from "./finalize";
 import * as retrieval from "./retrieval";
+import { connectIntegration, integrationStatus, type IntegrationId } from "./integrations";
+import { checkForUpdate, startUpdateChecks } from "./updates";
 
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -240,13 +242,13 @@ function stopDetection() {
   detectProc = null;
 }
 
-function armAutoEnd() {
+function armAutoEnd(graceMs = AUTO_END_GRACE_MS) {
   if (endGraceTimer || !activeMeetingId) return;
-  send("auto-end-pending", { graceMs: AUTO_END_GRACE_MS });
+  send("auto-end-pending", { graceMs });
   endGraceTimer = setTimeout(() => {
     endGraceTimer = null;
     void stopRecording("auto");
-  }, AUTO_END_GRACE_MS);
+  }, graceMs);
 }
 
 function cancelAutoEnd() {
@@ -255,6 +257,28 @@ function cancelAutoEnd() {
     endGraceTimer = null;
     send("auto-end-cancelled");
   }
+}
+
+// For manually-started meetings there is no meeting app to watch, so the end
+// signal is silence: no speech on either stream for SILENCE_END_MS arms the
+// auto-end toast; any new speech cancels it.
+const SILENCE_END_MS = 20000;
+const SILENCE_GRACE_MS = 10000;
+let silenceWatch: ReturnType<typeof setInterval> | null = null;
+
+function startSilenceWatch() {
+  stopSilenceWatch();
+  silenceWatch = setInterval(() => {
+    if (!activeMeetingId || !recorder || startedByApp) return;
+    if (Date.now() - recorder.lastSpeechAt >= SILENCE_END_MS) {
+      armAutoEnd(SILENCE_GRACE_MS);
+    }
+  }, 3000);
+}
+
+function stopSilenceWatch() {
+  if (silenceWatch) clearInterval(silenceWatch);
+  silenceWatch = null;
 }
 
 async function startRecording(title: string, appName?: string | null): Promise<string> {
@@ -270,9 +294,11 @@ async function startRecording(title: string, appName?: string | null): Promise<s
   recorder = new Recorder(
     id,
     (seg) => send("segment", seg),
-    (code) => void abortRecording(code)
+    (code) => void abortRecording(code),
+    () => cancelAutoEnd() // speech resumed — call is clearly still going
   );
   recorder.start();
+  startSilenceWatch();
 
   // Embed transcript chunks as the meeting runs so chat is instant afterward.
   retrieval.resetEmbedAvailability();
@@ -294,6 +320,7 @@ function stopEmbedTimer() {
 async function abortRecording(code: number | null): Promise<void> {
   const id = activeMeetingId;
   cancelAutoEnd();
+  stopSilenceWatch();
   stopEmbedTimer();
   await recorder?.stop().catch(() => {});
   recorder = null;
@@ -328,6 +355,7 @@ async function stopRecording(reason: "manual" | "auto" = "manual"): Promise<void
   if (!activeMeetingId) return;
   const id = activeMeetingId;
   cancelAutoEnd();
+  stopSilenceWatch();
   stopEmbedTimer();
   await recorder?.stop();
   recorder = null;
@@ -459,6 +487,18 @@ function registerIpc() {
   });
 
   ipcMain.handle("meetings:list", () => db.listMeetings());
+  ipcMain.handle("integrations:status", () => integrationStatus());
+  ipcMain.handle("integrations:connect", (_e, id: IntegrationId) => connectIntegration(id));
+  ipcMain.handle("updates:check", () => checkForUpdate(app.getVersion()));
+
+  ipcMain.handle("meetings:search", (_e, query: string) => {
+    const q = String(query ?? "").trim();
+    if (q.length < 2) return { segments: [], meetings: [] };
+    return {
+      segments: db.searchSegments(q, 30),
+      meetings: db.searchMeetingsByTitleOrSummary(q, 10),
+    };
+  });
   ipcMain.handle("meetings:get", (_e, id: string) => {
     // Warm embeddings when a meeting is opened so its first chat is instant.
     prewarm(id, true);
@@ -614,6 +654,7 @@ app.whenReady().then(async () => {
   llm.setLlmBaseUrl(getSettings().llmBaseUrl);
   registerIpc();
   startControlServer();
+  startUpdateChecks(app.getVersion());
   createWindow();
   createTray();
 

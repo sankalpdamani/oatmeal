@@ -1,0 +1,43 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Oatmeal app icon: warm paper squircle, olive bowl of oats, steam. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbfbf7"/>
+      <stop offset="1" stop-color="#efefe7"/>
+    </linearGradient>
+    <linearGradient id="bowl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#788c15"/>
+      <stop offset="1" stop-color="#5b6f00"/>
+    </linearGradient>
+    <linearGradient id="oats" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f7f3e4"/>
+      <stop offset="1" stop-color="#eee7cf"/>
+    </linearGradient>
+  </defs>
+
+  <!-- macOS squircle-ish rounded rect -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="none" stroke="#47432a22" stroke-width="6"/>
+
+  <!-- steam -->
+  <g stroke="#acada8" stroke-width="30" stroke-linecap="round" fill="none" opacity="0.75">
+    <path d="M400 330 c-24 -44 24 -66 0 -110"/>
+    <path d="M512 310 c-24 -44 24 -66 0 -110"/>
+    <path d="M624 330 c-24 -44 24 -66 0 -110"/>
+  </g>
+
+  <!-- bowl -->
+  <path d="M232 470 a280 280 0 0 0 560 0 z" fill="url(#bowl)"/>
+  <!-- oats surface -->
+  <ellipse cx="512" cy="470" rx="280" ry="58" fill="url(#oats)"/>
+  <!-- oat flakes -->
+  <g fill="#d9cfa8">
+    <ellipse cx="400" cy="458" rx="34" ry="16" transform="rotate(-12 400 458)"/>
+    <ellipse cx="520" cy="472" rx="36" ry="17" transform="rotate(9 520 472)"/>
+    <ellipse cx="632" cy="456" rx="32" ry="15" transform="rotate(-7 632 456)"/>
+    <ellipse cx="460" cy="484" rx="28" ry="13" transform="rotate(15 460 484)"/>
+    <ellipse cx="580" cy="486" rx="26" ry="12" transform="rotate(-14 580 486)"/>
+  </g>
+  <!-- bowl foot -->
+  <path d="M420 742 h184 a12 12 0 0 1 12 12 v22 a12 12 0 0 1 -12 12 h-184 a12 12 0 0 1 -12 -12 v-22 a12 12 0 0 1 12 -12 z" fill="#4c5616"/>
+</svg>
