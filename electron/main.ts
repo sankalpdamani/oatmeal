@@ -19,6 +19,7 @@ import * as whisper from "./whisper";
 import * as llm from "./ollama";
 import { Recorder } from "./recorder";
 import { generateSummary, generateTitle } from "./finalize";
+import * as retrieval from "./retrieval";
 
 let win: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -54,6 +55,7 @@ function getSettings(): Settings {
     sttModel: db.getSetting("sttModel") ?? defaultSttModel(),
     llmModel: db.getSetting("llmModel") ?? "qwen2.5:14b",
     llmBaseUrl: db.getSetting("llmBaseUrl") ?? llm.DEFAULT_LLM_BASE_URL,
+    embedModel: db.getSetting("embedModel") ?? "nomic-embed-text",
     detectionEnabled: (db.getSetting("detectionEnabled") ?? "true") === "true",
   };
 }
@@ -271,63 +273,6 @@ function transcriptMarkdown(meetingId: string): string {
   return `# ${m?.title ?? "Meeting"}\n\n_${when}_\n\n${body || "_No transcript captured._"}\n`;
 }
 
-const STOPWORDS = new Set(
-  "the a an and or of to in on for is are was were be been do does did what who how why when where which that this it its as at by with from about into over your you our their they them we".split(
-    " "
-  )
-);
-function tokenize(text: string): string[] {
-  return (text.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
-    (t) => t.length > 2 && !STOPWORDS.has(t)
-  );
-}
-
-// Lightweight lexical retrieval: send the transcript lines most relevant to the
-// question (plus their neighbours for context) instead of the whole transcript.
-// Keeps the prompt small — much faster to process, and avoids overflowing the
-// local model's context window (which was making some chats fail).
-function retrieveTranscript(meetingId: string, query: string, maxChars = 4000): string {
-  const segs = db.listSegments(meetingId);
-  if (segs.length === 0) return "";
-  const fmt = (i: number) => `${segs[i].speaker === "me" ? "Me" : "Them"}: ${segs[i].text}`;
-
-  const recentTail = (): string => {
-    const all = segs.map((_, i) => fmt(i)).join("\n");
-    return all.length > maxChars ? "…\n" + all.slice(-maxChars) : all;
-  };
-
-  const qTerms = new Set(tokenize(query));
-  // No usable query terms (e.g. "say more") → fall back to the recent tail.
-  if (qTerms.size === 0) return recentTail();
-
-  const scored = segs.map((s, i) => {
-    let score = 0;
-    for (const t of tokenize(s.text)) if (qTerms.has(t)) score++;
-    return { i, score };
-  });
-  if (!scored.some((x) => x.score > 0)) return recentTail();
-
-  // Keep the top-scoring lines and their immediate neighbours, in order.
-  const keep = new Set<number>();
-  for (const { i } of [...scored]
-    .sort((a, b) => b.score - a.score || b.i - a.i)
-    .slice(0, 30)) {
-    keep.add(i - 1);
-    keep.add(i);
-    keep.add(i + 1);
-  }
-  const lines: string[] = [];
-  let chars = 0;
-  for (let i = 0; i < segs.length; i++) {
-    if (!keep.has(i) || i < 0) continue;
-    const line = fmt(i);
-    if (chars + line.length > maxChars) break;
-    lines.push(line);
-    chars += line.length + 1;
-  }
-  return lines.join("\n");
-}
-
 function registerIpc() {
   ipcMain.handle("status", () => getStatus());
   ipcMain.handle("settings:get", () => getSettings());
@@ -392,7 +337,7 @@ function registerIpc() {
     const meeting = db.getMeeting(meetingId);
     // Retrieve only the relevant transcript excerpts for this question, plus the
     // summary (a compact whole-meeting view). Keeps the prompt small and fast.
-    const transcript = retrieveTranscript(meetingId, content);
+    const transcript = await retrieval.retrieveContext(meetingId, content, s.embedModel);
     const history = db.listChatMessages(meetingId).slice(-8);
     const system = `You answer questions about a meeting using its summary and the relevant transcript excerpts below. "Me" is the app user; "Them" is everyone else. Quote the excerpts when helpful. If the answer isn't in them, say so plainly.
 
@@ -485,7 +430,6 @@ app.whenReady().then(async () => {
   registerIpc();
   createWindow();
   createTray();
-  if (getSettings().detectionEnabled) startDetection();
 
   // Warm up whisper in the background if the default model is present.
   const s = getSettings();

@@ -179,25 +179,30 @@ export default function SettingsModal({ onClose }: { onClose: () => void }) {
                 )}
               </label>
             )}
-          </div>
-        </Section>
 
-        <Section title="Meeting detection">
-          <label className="flex items-center justify-between rounded-lg border border-hairline px-3 py-2.5">
-            <span className="text-[13px]">
-              Notify me when a meeting app is using the microphone
-            </span>
-            <input
-              type="checkbox"
-              checked={settings?.detectionEnabled ?? true}
-              onChange={(e) =>
-                void window.oatmeal
-                  .setSettings({ detectionEnabled: e.target.checked })
-                  .then(() => refresh())
-              }
-              className="h-4 w-4 accent-(--color-accent)"
-            />
-          </label>
+            <label className="rounded-lg border border-hairline px-3 py-2.5">
+              <div className="mb-1 text-[12px] font-medium text-ink-secondary">
+                Embedding model (smarter search on long meetings)
+              </div>
+              <input
+                type="text"
+                key={`embed-${settings?.embedModel ?? ""}`}
+                defaultValue={settings?.embedModel ?? ""}
+                placeholder="nomic-embed-text"
+                spellCheck={false}
+                onBlur={(e) =>
+                  void window.oatmeal
+                    .setSettings({ embedModel: e.target.value.trim() })
+                    .then(() => refresh())
+                }
+                className="w-full bg-transparent text-[13px] outline-none placeholder:text-ink-tertiary"
+              />
+              <div className="mt-1 text-[12px] text-ink-tertiary">
+                Install it in your model app for meaning-based chat search on long
+                meetings. Without it, Oatmeal uses keyword search.
+              </div>
+            </label>
+          </div>
         </Section>
 
         <Section title="Permissions">

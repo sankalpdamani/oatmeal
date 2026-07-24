@@ -331,7 +331,7 @@ function ChatPanel({ meetingId, onClose }: { meetingId: string; onClose: () => v
         )}
 
         <div className="shrink-0 p-3">
-          <div className="flex items-end gap-2 rounded-xl border border-hairline bg-surface px-3 py-2 focus-within:ring-1 focus-within:ring-accent">
+          <div className="flex items-center gap-2 rounded-xl border border-hairline bg-surface px-3 py-2 focus-within:ring-1 focus-within:ring-accent">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -344,7 +344,7 @@ function ChatPanel({ meetingId, onClose }: { meetingId: string; onClose: () => v
               rows={1}
               autoFocus
               placeholder="Ask anything"
-              className="max-h-32 min-w-0 flex-1 resize-none bg-transparent text-[13.5px] outline-none placeholder:text-ink-tertiary"
+              className="max-h-32 min-w-0 flex-1 resize-none self-center bg-transparent text-[13.5px] leading-6 outline-none placeholder:text-ink-tertiary"
             />
             <button
               onClick={send}
